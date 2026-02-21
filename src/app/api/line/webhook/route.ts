@@ -440,7 +440,31 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 4. Test Push API — send a message to a specific user
+  // 4. Check message quota
+  if (accessToken) {
+    try {
+      const [quotaRes, usageRes] = await Promise.all([
+        fetch("https://api.line.me/v2/bot/message/quota", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        fetch("https://api.line.me/v2/bot/message/quota/consumption", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      ]);
+      diagnostics.quota = {
+        status: quotaRes.status,
+        data: await quotaRes.json().catch(() => null),
+      };
+      diagnostics.usage = {
+        status: usageRes.status,
+        data: await usageRes.json().catch(() => null),
+      };
+    } catch (err) {
+      diagnostics.quotaError = String(err);
+    }
+  }
+
+  // 5. Test Push API — send a message to a specific user
   const pushTo = req.nextUrl.searchParams.get("push");
   if (pushTo && accessToken) {
     try {
