@@ -1013,8 +1013,16 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                           : "bg-white border border-gray-200 text-gray-800 rounded-bl-md shadow-sm"
                       )}
                     >
-                      {/* Role badge + Pipeline info */}
-                      {isBot && (
+                       {/* Admin sender name */}
+                       {isAdmin && msg.sentBy && (
+                         <div className="flex items-center gap-1 mb-1">
+                           <span className="text-[10px] font-semibold text-indigo-200">
+                             {msg.sentBy}
+                           </span>
+                         </div>
+                       )}
+                       {/* Role badge + Pipeline info */}
+                       {isBot && (
                         <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                           <div className="flex items-center gap-1">
                             <Bot className="h-3 w-3 text-indigo-500" />
@@ -1065,12 +1073,19 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                       </p>
                     </div>
 
-                    {/* Avatar for admin */}
-                    {isAdmin && (
-                      <div className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-600 to-indigo-700 flex items-center justify-center shrink-0 mt-0.5">
-                        <Shield className="h-3.5 w-3.5 text-white" />
-                      </div>
-                    )}
+                     {/* Avatar + name for admin */}
+                     {isAdmin && (
+                       <div className="flex flex-col items-center gap-0.5">
+                         <div className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-600 to-indigo-700 flex items-center justify-center shrink-0">
+                           <Shield className="h-3.5 w-3.5 text-white" />
+                         </div>
+                         {msg.sentBy && (
+                           <span className="text-[9px] text-gray-400 font-medium leading-none">
+                             {msg.sentBy}
+                           </span>
+                         )}
+                       </div>
+                     )}
                   </div>
                 );
               })}

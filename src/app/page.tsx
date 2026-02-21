@@ -16,6 +16,7 @@ import PromotionsPage from "@/components/PromotionsPage";
 import QuickRepliesPage from "@/components/QuickRepliesPage";
 import ShippingPage from "@/components/ShippingPage";
 import ChannelsPage from "@/components/ChannelsPage";
+import AdminMonitorPage from "@/components/AdminMonitorPage";
 import {
   Code,
   ExternalLink,
@@ -209,6 +210,8 @@ export default function Home() {
         );
       case "analytics":
         return <AnalyticsDashboard key={businessId} businessId={businessId} />;
+      case "admin-monitor":
+        return <AdminMonitorPage key={businessId} businessId={businessId} />;
       case "channels":
         return <ChannelsPage key={businessId} businessId={businessId} />;
       case "settings":

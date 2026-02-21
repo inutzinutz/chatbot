@@ -54,6 +54,24 @@ export interface ChatMessage {
   timestamp: number;
   pipelineLayer?: number;
   pipelineLayerName?: string;
+  /** Username of the admin who sent this message (populated for role="admin" only) */
+  sentBy?: string;
+}
+
+/**
+ * Admin activity log entry — one record per admin action.
+ * Stored in a Redis sorted set: adminlog:{businessId} (score = timestamp)
+ * and as individual keys: adminlogentry:{businessId}:{id}
+ */
+export interface AdminActivityEntry {
+  id: string;
+  businessId: string;
+  username: string;
+  action: "send" | "toggleBot" | "pin" | "unpin" | "globalToggleBot" | "sendFollowup";
+  userId: string;          // LINE/web userId the action was performed on
+  displayName?: string;    // customer display name at time of action
+  detail: string;          // short human-readable description
+  timestamp: number;
 }
 
 export interface FollowUpResult {
@@ -420,6 +438,92 @@ class ChatStore {
 
   async setLineSettings(businessId: string, settings: LineChannelSettings): Promise<void> {
     await setJSON(`linesettings:${businessId}`, settings);
+  }
+
+  // ── Admin Activity Log ──
+  // Sorted set: adminlog:{businessId}  score=timestamp  member=entryId
+  // Entry key:  adminlogentry:{businessId}:{entryId}    value=JSON
+
+  async logAdminActivity(entry: Omit<AdminActivityEntry, "id">): Promise<void> {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const full: AdminActivityEntry = { ...entry, id };
+    const entryKey = `adminlogentry:${entry.businessId}:${id}`;
+    await setJSON(entryKey, full);
+    await redis.expire(entryKey, 60 * 60 * 24 * 90); // keep 90 days
+    await redis.zadd(`adminlog:${entry.businessId}`, entry.timestamp, id);
+    // Trim to last 5000 entries
+    await redis.zremrangebyrank(`adminlog:${entry.businessId}`, 0, -5001);
+  }
+
+  async getAdminActivityLog(
+    businessId: string,
+    opts?: { limit?: number; offset?: number; username?: string }
+  ): Promise<AdminActivityEntry[]> {
+    const limit = opts?.limit ?? 100;
+    const offset = opts?.offset ?? 0;
+    // Most recent first (REV)
+    const ids = await redis.zrange(
+      `adminlog:${businessId}`,
+      offset,
+      offset + limit - 1,
+      "REV"
+    );
+    if (!ids || ids.length === 0) return [];
+
+    const pipeline = redis.pipeline();
+    for (const id of ids) {
+      pipeline.get(`adminlogentry:${businessId}:${id}`);
+    }
+    const results = await pipeline.exec();
+    if (!results) return [];
+
+    const entries: AdminActivityEntry[] = [];
+    for (const [err, raw] of results) {
+      if (err || !raw) continue;
+      try {
+        const entry = JSON.parse(raw as string) as AdminActivityEntry;
+        if (!opts?.username || entry.username === opts.username) {
+          entries.push(entry);
+        }
+      } catch { /* skip */ }
+    }
+    return entries;
+  }
+
+  async getAdminStats(
+    businessId: string,
+    since?: number
+  ): Promise<Record<string, { sent: number; toggleBot: number; pin: number; lastActive: number }>> {
+    // Pull last 1000 entries for stats
+    const ids = await redis.zrange(`adminlog:${businessId}`, 0, 999, "REV");
+    if (!ids || ids.length === 0) return {};
+
+    const pipeline = redis.pipeline();
+    for (const id of ids) {
+      pipeline.get(`adminlogentry:${businessId}:${id}`);
+    }
+    const results = await pipeline.exec();
+    if (!results) return {};
+
+    const stats: Record<string, { sent: number; toggleBot: number; pin: number; lastActive: number }> = {};
+
+    for (const [err, raw] of results) {
+      if (err || !raw) continue;
+      try {
+        const entry = JSON.parse(raw as string) as AdminActivityEntry;
+        if (since && entry.timestamp < since) continue;
+        if (!stats[entry.username]) {
+          stats[entry.username] = { sent: 0, toggleBot: 0, pin: 0, lastActive: 0 };
+        }
+        if (entry.action === "send" || entry.action === "sendFollowup") stats[entry.username].sent++;
+        if (entry.action === "toggleBot") stats[entry.username].toggleBot++;
+        if (entry.action === "pin" || entry.action === "unpin") stats[entry.username].pin++;
+        if (entry.timestamp > stats[entry.username].lastActive) {
+          stats[entry.username].lastActive = entry.timestamp;
+        }
+      } catch { /* skip */ }
+    }
+    return stats;
   }
 }
 

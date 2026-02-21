@@ -24,6 +24,7 @@ import {
   Plane,
   LogOut,
   User,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { businessUnitList } from "@/lib/businessUnits";
@@ -32,6 +33,7 @@ export type PageId =
   | "chat"
   | "live-chat"
   | "analytics"
+  | "admin-monitor"
   | "products"
   | "sale-scripts"
   | "knowledge"
@@ -67,6 +69,7 @@ const NAV_SECTIONS = [
       { id: "live-chat" as PageId, label: "Live Chat", icon: MessagesSquare },
       { id: "chat" as PageId, label: "AI Chat", icon: MessageCircle },
       { id: "analytics" as PageId, label: "Analytics", icon: BarChart3 },
+      { id: "admin-monitor" as PageId, label: "Admin Monitor", icon: Activity },
     ],
   },
   {

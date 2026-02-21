@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
+import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -29,6 +30,15 @@ function getLineAccessToken(businessId: string): string {
   );
 }
 
+// ── Extract authenticated username from session cookie ──
+
+async function getSessionUsername(req: NextRequest): Promise<string> {
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return "admin";
+  const session = await verifySessionToken(token);
+  return session?.username || "admin";
+}
+
 // ── GET: List conversations or get messages ──
 
 export async function GET(req: NextRequest) {
@@ -47,6 +57,24 @@ export async function GET(req: NextRequest) {
   if (view === "followups") {
     const followups = await chatStore.getAllFollowUps(businessId);
     return NextResponse.json({ followups });
+  }
+
+  // View admin activity log
+  if (view === "adminlog") {
+    const username = req.nextUrl.searchParams.get("username") || undefined;
+    const limit = parseInt(req.nextUrl.searchParams.get("limit") || "100");
+    const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
+    const entries = await chatStore.getAdminActivityLog(businessId, { limit, offset, username });
+    return NextResponse.json({ entries });
+  }
+
+  // View admin stats (per-user summary)
+  if (view === "adminstats") {
+    const since = req.nextUrl.searchParams.get("since")
+      ? parseInt(req.nextUrl.searchParams.get("since")!)
+      : Date.now() - 30 * 24 * 60 * 60 * 1000; // default: last 30 days
+    const stats = await chatStore.getAdminStats(businessId, since);
+    return NextResponse.json({ stats });
   }
 
   if (userId) {
@@ -86,6 +114,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Extract who is performing this action
+  const sentBy = await getSessionUsername(req);
+
+  // Helper: get customer display name for logging
+  const getDisplayName = async (uid: string) => {
+    if (!uid) return undefined;
+    const convs = await chatStore.getConversations(businessId);
+    return convs.find((c) => c.userId === uid)?.displayName;
+  };
+
   switch (action) {
     // ── Send message to customer via LINE Push API ──
     case "send": {
@@ -97,10 +135,22 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Store admin message
+      // Store admin message with sentBy
       const stored = await chatStore.addMessage(businessId, userId, {
         role: "admin",
         content: message,
+        timestamp: Date.now(),
+        sentBy,
+      });
+
+      // Log activity
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "send",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: message.slice(0, 100),
         timestamp: Date.now(),
       });
 
@@ -164,12 +214,22 @@ export async function POST(req: NextRequest) {
       const enabled = !!body.enabled;
       await chatStore.toggleBot(businessId, userId, enabled);
 
-      // Also store a system-like message noting the change
+      const toggleMsg = enabled
+        ? `[ระบบ] เปิด Bot — โดย ${sentBy}`
+        : `[ระบบ] ปิด Bot — ${sentBy} จะตอบเอง`;
       await chatStore.addMessage(businessId, userId, {
         role: "admin",
-        content: enabled
-          ? "[ระบบ] เปิด Bot ตอบอัตโนมัติแล้ว"
-          : "[ระบบ] ปิด Bot — แอดมินตอบเอง",
+        content: toggleMsg,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "toggleBot",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: enabled ? "เปิด Bot" : "ปิด Bot",
         timestamp: Date.now(),
       });
 
@@ -192,6 +252,14 @@ export async function POST(req: NextRequest) {
     case "globalToggleBot": {
       const globalEnabled = !!body.enabled;
       await chatStore.setGlobalBotEnabled(businessId, globalEnabled);
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "globalToggleBot",
+        userId: "",
+        detail: globalEnabled ? "เปิด Global Bot" : "ปิด Global Bot",
+        timestamp: Date.now(),
+      });
       return NextResponse.json({
         success: true,
         globalBotEnabled: globalEnabled,
@@ -233,10 +301,20 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Store admin message
+      // Store admin message with sentBy
       const stored = await chatStore.addMessage(businessId, userId, {
         role: "admin",
         content: message,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "sendFollowup",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: message.slice(0, 100),
         timestamp: Date.now(),
       });
 
@@ -296,7 +374,17 @@ export async function POST(req: NextRequest) {
       await chatStore.pinConversation(businessId, userId, reason);
       await chatStore.addMessage(businessId, userId, {
         role: "admin",
-        content: `[ระบบ] ปักหมุดแล้ว — ${reason}`,
+        content: `[ระบบ] ปักหมุดแล้ว — ${reason} (โดย ${sentBy})`,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "pin",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: reason,
         timestamp: Date.now(),
       });
       return NextResponse.json({ success: true });
@@ -313,7 +401,17 @@ export async function POST(req: NextRequest) {
       await chatStore.unpinConversation(businessId, userId);
       await chatStore.addMessage(businessId, userId, {
         role: "admin",
-        content: "[ระบบ] ถอดหมุดแล้ว",
+        content: `[ระบบ] ถอดหมุดแล้ว (โดย ${sentBy})`,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "unpin",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: "ถอดหมุด",
         timestamp: Date.now(),
       });
       return NextResponse.json({ success: true });
