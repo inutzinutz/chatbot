@@ -275,9 +275,15 @@ export const intents: Intent[] = [
     name: "EM Motorcycle Inquiry",
     description: "ลูกค้าสอบถามเกี่ยวกับมอเตอร์ไซค์ไฟฟ้า EM โดยเฉพาะ",
     triggers: [
-      "มอเตอร์ไซค์", "มอไซค์", "motorcycle", "em", "milano", "legend", "legend g.2", "legend pro",
-      "owen", "enzo", "qarez", "จักรยานยนต์ไฟฟ้า",
-      // compound phrases that clearly mean motorcycle context
+      // ชื่อและตัวย่อทั่วไป
+      "มอเตอร์ไซค์", "มอไซค์", "มอไซ", "motorcycle", "em", "milano", "legend", "legend g.2", "legend pro",
+      "owen", "enzo", "qarez", "จักรยานยนต์ไฟฟ้า", "รถไฟฟ้า",
+      // การขับขี่ / ระยะทาง / สมรรถนะ — context ที่ชัดเจนว่าถามเรื่องมอไซค์
+      "ขับ", "วิ่งได้", "ระยะทาง", "range", "วิ่งไกล", "ขับไกล", "ไม่ไกล", "ใช้ในเมือง",
+      "ความเร็ว", "speed", "กม./ชม.", "กิโลต่อชั่วโมง",
+      "ชาร์จ", "ชาร์จนาน", "ชาร์จกี่ชม", "ชาร์จกี่ชั่วโมง", "ชาร์จเต็ม",
+      "น้ำหนักรถ", "ที่นั่ง", "นั่งซ้อน",
+      // compound phrases: ชัดเจนว่าถามมอไซค์
       "ประกัน em", "ประกัน legend", "ประกัน milan", "ประกัน owen",
       "warranty em", "warranty legend", "warranty มอไซค์",
       "รับประกัน em", "รับประกัน legend", "รับประกัน มอไซค์",
