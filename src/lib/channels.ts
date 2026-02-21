@@ -145,7 +145,7 @@ export const channels: ChannelInfo[] = [
       accessToken: "",
       richMenuEnabled: true,
       richMenuId: "",
-      webhookUrl: "",
+      webhookUrl: "/api/line/webhook?businessId=dji13store",
       useReplyApi: true,
     },
   },
