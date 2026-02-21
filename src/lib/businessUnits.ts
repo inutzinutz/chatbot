@@ -57,6 +57,34 @@ import {
   buildDiscontinuedResponse as evlifeBuildDiscontinuedResponse,
 } from "@/lib/evlife/intentPolicies";
 
+// DJI 13 Service Plus data
+import {
+  products as svcProducts,
+  searchProducts as svcSearchProducts,
+  getCategories as svcGetCategories,
+  getActiveProducts as svcGetActiveProducts,
+  getCheapestProducts as svcGetCheapestProducts,
+  getProductsByCategory as svcGetProductsByCategory,
+} from "@/lib/dji13service/products";
+import { faqData as svcFaqData } from "@/lib/dji13service/faq";
+import { saleScripts as svcSaleScripts, matchSaleScript as svcMatchSaleScript } from "@/lib/dji13service/saleScripts";
+import { knowledgeDocs as svcKnowledgeDocs, matchKnowledgeDoc as svcMatchKnowledgeDoc } from "@/lib/dji13service/knowledgeDocs";
+import {
+  intents as svcIntents,
+  matchAdminEscalation as svcMatchAdminEscalation,
+  matchStockInquiry as svcMatchStockInquiry,
+  matchVatRefund as svcMatchVatRefund,
+  matchContactIntent as svcMatchContactIntent,
+  matchDiscontinued as svcMatchDiscontinued,
+  buildAdminEscalationResponse as svcBuildAdminEscalationResponse,
+  buildStockCheckResponse as svcBuildStockCheckResponse,
+  buildVatRefundResponse as svcBuildVatRefundResponse,
+  buildContactChannelsResponse as svcBuildContactChannelsResponse,
+  buildDiscontinuedResponse as svcBuildDiscontinuedResponse,
+} from "@/lib/dji13service/intentPolicies";
+import { channels as svcChannels } from "@/lib/dji13service/channels";
+import { analyticsData as svcAnalyticsData } from "@/lib/dji13service/analytics";
+
 // Channels data
 import { channels as djiChannels, type ChannelInfo } from "@/lib/channels";
 import { channels as evlifeChannels } from "@/lib/evlife/channels";
@@ -260,17 +288,89 @@ const evlifeConfig: BusinessConfig = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  DJI 13 Service Plus config                                        */
+/* ------------------------------------------------------------------ */
+
+const dji13serviceConfig: BusinessConfig = {
+  id: "dji13service",
+  name: "DJI 13 Service Plus",
+  shortName: "13 Service",
+  description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI",
+  primaryColor: "#ef4444",
+
+  products: svcProducts,
+  faqData: svcFaqData,
+  saleScripts: svcSaleScripts,
+  knowledgeDocs: svcKnowledgeDocs,
+  intents: svcIntents,
+  channels: svcChannels,
+  analyticsData: svcAnalyticsData,
+
+  searchProducts: svcSearchProducts,
+  getCategories: svcGetCategories,
+  getActiveProducts: svcGetActiveProducts,
+  getCheapestProducts: svcGetCheapestProducts,
+  getProductsByCategory: svcGetProductsByCategory,
+
+  matchSaleScript: svcMatchSaleScript,
+  matchKnowledgeDoc: svcMatchKnowledgeDoc,
+
+  matchAdminEscalation: svcMatchAdminEscalation,
+  matchStockInquiry: svcMatchStockInquiry,
+  matchVatRefund: svcMatchVatRefund,
+  matchContactIntent: svcMatchContactIntent,
+  matchDiscontinued: svcMatchDiscontinued,
+
+  buildAdminEscalationResponse: svcBuildAdminEscalationResponse,
+  buildStockCheckResponse: svcBuildStockCheckResponse,
+  buildVatRefundResponse: svcBuildVatRefundResponse,
+  buildContactChannelsResponse: svcBuildContactChannelsResponse,
+  buildDiscontinuedResponse: svcBuildDiscontinuedResponse,
+
+  systemPromptIdentity: `คุณคือ "DJI 13 Service Assistant" ผู้ช่วย AI ของ DJI 13 Service Plus ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI บน DroidMind
+คุณช่วยได้ทั้งลูกค้าทั่วไปที่ส่งซ่อม และช่างเทคนิคที่ต้องการคู่มือวินิจฉัย error code และ checklist ซ่อม
+ตอบภาษาไทยเป็นหลัก ตอบภาษาอังกฤษได้ถ้าถามเป็นภาษาอังกฤษ`,
+
+  orderChannelsText: "- LINE: @dji13service (แนะนำ)\n- Facebook: DJI 13 Store\n- โทร: 065-694-6155",
+
+  defaultFallbackMessage:
+    "ขอบคุณที่ติดต่อ **DJI 13 Service Plus** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- ส่งซ่อมโดรน DJI ทุกรุ่น\n- เคลม DJI Care Refresh\n- กรณี Flyaway / เปียกน้ำ\n- ปัญหากิมบอล / แบตเตอรี่ / สัญญาณ\n- Error code & คู่มือช่างวินิจฉัย\n- ราคาซ่อมและอะไหล่\n\nลองพิมพ์ปัญหา เช่น 'กิมบอลสั่น' หรือ 'error code 40008' ได้เลยครับ!",
+
+  categoryChecks: [
+    { keys: ["ซ่อม", "repair", "เสีย", "พัง"], category: "ซ่อม", label: "บริการซ่อม" },
+    { keys: ["เคลม", "care refresh", "dji care", "claim"], category: "DJI Care Refresh", label: "DJI Care Refresh" },
+    { keys: ["อะไหล่", "spare", "parts", "ชิ้นส่วน"], category: "อะไหล่", label: "อะไหล่/ชิ้นส่วน" },
+    { keys: ["flyaway", "บินหาย", "หายไป", "crash", "ตก"], category: "เหตุฉุกเฉิน", label: "เหตุฉุกเฉิน" },
+    { keys: ["error", "code", "ข้อผิดพลาด", "error code"], category: "Error Code", label: "รหัส Error" },
+    { keys: ["ช่าง", "technician", "วินิจฉัย", "diagnostic"], category: "ช่างเทคนิค", label: "คู่มือช่าง" },
+  ],
+
+  faqTerms: [
+    { keys: ["ราคาซ่อม", "ค่าซ่อม", "repair cost", "ค่าบริการ"], topic: "ราคาซ่อม" },
+    { keys: ["care refresh", "dji care", "เคลม", "claim"], topic: "DJI Care Refresh" },
+    { keys: ["ส่ง", "จัดส่ง", "shipping", "delivery", "ส่งซ่อม"], topic: "การส่งซ่อม" },
+    { keys: ["ประกัน", "warranty", "รับประกัน"], topic: "รับประกัน" },
+    { keys: ["flyaway", "บินหาย", "crash", "ตก", "เปียกน้ำ", "water"], topic: "เหตุฉุกเฉิน" },
+    { keys: ["error", "code", "ข้อผิดพลาด"], topic: "Error Code" },
+    { keys: ["ช่าง", "technician", "diagnostic", "วินิจฉัย", "checklist"], topic: "คู่มือช่าง" },
+    { keys: ["firmware", "อัปเดต", "update", "dji fly", "dji assistant"], topic: "Firmware" },
+  ],
+};
+
+/* ------------------------------------------------------------------ */
 /*  Registry                                                          */
 /* ------------------------------------------------------------------ */
 
 export const businessUnits: Record<string, BusinessConfig> = {
   dji13store: djiConfig,
   evlifethailand: evlifeConfig,
+  dji13service: dji13serviceConfig,
 };
 
 export const businessUnitList = [
   { id: "dji13store", name: "DJI 13 STORE", shortName: "DJI 13", description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ", primaryColor: "#3b82f6", icon: "drone" },
   { id: "evlifethailand", name: "EV Life Thailand", shortName: "EV Life", description: "แบตเตอรี่ LiFePO4 & มอเตอร์ไซค์ไฟฟ้า EM", primaryColor: "#f97316", icon: "battery" },
+  { id: "dji13service", name: "DJI 13 Service Plus", shortName: "13 Service", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" },
 ] as const;
 
 export const DEFAULT_BUSINESS_ID = "dji13store";
