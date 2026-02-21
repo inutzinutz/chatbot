@@ -232,8 +232,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  console.log(`[LINE webhook] Received request for business: ${businessId}`);
-
   // Read raw body for signature verification
   const rawBody = await req.text();
   const signature = req.headers.get("x-line-signature") || "";
