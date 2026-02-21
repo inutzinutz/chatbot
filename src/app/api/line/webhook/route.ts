@@ -78,7 +78,7 @@ async function replyToLine(
   // LINE text message max is 5000 chars
   const trimmed = text.length > 5000 ? text.slice(0, 4997) + "..." : text;
 
-  await fetch("https://api.line.me/v2/bot/message/reply", {
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -89,6 +89,11 @@ async function replyToLine(
       messages: [{ type: "text", text: trimmed }],
     }),
   });
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    console.error(`[LINE webhook] Reply API failed: ${res.status} ${res.statusText} — ${errorBody}`);
+  }
 }
 
 // ── Strip markdown for LINE plain-text ──
@@ -226,6 +231,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  console.log(`[LINE webhook] Received request for business: ${businessId}`);
+
   // Read raw body for signature verification
   const rawBody = await req.text();
   const signature = req.headers.get("x-line-signature") || "";
@@ -264,6 +271,8 @@ export async function POST(req: NextRequest) {
     if (!userText || !replyToken) continue;
 
     try {
+      console.log(`[LINE webhook] Processing message: "${userText}" from user: ${event.source?.userId || "unknown"}`);
+
       // Run pipeline directly (no HTTP self-fetch)
       const chatMessages: ChatMessage[] = [
         { role: "user", content: userText },
@@ -272,6 +281,8 @@ export async function POST(req: NextRequest) {
       const { content: pipelineContent, trace: pipelineTrace } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
+      console.log(`[LINE webhook] Pipeline resolved at layer ${pipelineTrace.finalLayer}: ${pipelineTrace.finalLayerName}`);
+
       let replyText = "";
 
       if (pipelineTrace.finalLayer < 14) {
@@ -279,9 +290,11 @@ export async function POST(req: NextRequest) {
         replyText = pipelineContent;
       } else {
         // Layer 14: Default fallback — try GPT as last resort
+        console.log(`[LINE webhook] Layer 14 reached, trying GPT fallback...`);
         const systemPrompt = buildSystemPrompt(biz);
         const gptResponse = await callGptFallback(userText, systemPrompt);
         replyText = gptResponse || pipelineContent;
+        console.log(`[LINE webhook] GPT fallback result: ${gptResponse ? "success" : "no API key or failed, using pipeline default"}`);
       }
 
       if (!replyText) {
@@ -291,7 +304,9 @@ export async function POST(req: NextRequest) {
       // Strip markdown for plain-text LINE
       replyText = stripMarkdown(replyText);
 
+      console.log(`[LINE webhook] Sending reply (${replyText.length} chars): "${replyText.slice(0, 100)}..."`);
       await replyToLine(replyToken, replyText, accessToken);
+      console.log(`[LINE webhook] Reply sent successfully`);
     } catch (err) {
       console.error(`[LINE webhook] Error processing message:`, err);
 
