@@ -253,8 +253,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  console.log(`[LINE webhook] Events count: ${events.length}, types: ${events.map(e => `${e.type}/${e.message?.type || "n/a"}`).join(", ")}`);
+
   // Webhook verification request (empty events)
   if (events.length === 0) {
+    console.log(`[LINE webhook] Empty events (verify request)`);
     return NextResponse.json({ status: "ok" });
   }
 
@@ -263,6 +266,7 @@ export async function POST(req: NextRequest) {
 
   // Process each event
   for (const event of events) {
+    console.log(`[LINE webhook] Event: type=${event.type}, messageType=${event.message?.type}, hasReplyToken=${!!event.replyToken}`);
     // Only handle text messages
     if (event.type !== "message" || event.message?.type !== "text") continue;
 
@@ -326,14 +330,69 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ status: "ok" });
 }
 
-// ── GET handler for quick health check ──
+// ── GET handler for health check + debug ──
 
 export async function GET(req: NextRequest) {
   const businessId = req.nextUrl.searchParams.get("businessId") || "none";
-  return NextResponse.json({
-    status: "ok",
-    endpoint: "LINE Webhook",
+  const debug = req.nextUrl.searchParams.get("debug") === "1";
+
+  if (!debug) {
+    return NextResponse.json({
+      status: "ok",
+      endpoint: "LINE Webhook",
+      businessId,
+      usage: "POST /api/line/webhook?businessId=evlifethailand",
+    });
+  }
+
+  // Debug mode: test pipeline + LINE API token
+  const diagnostics: Record<string, unknown> = {
     businessId,
-    usage: "POST /api/line/webhook?businessId=evlifethailand",
-  });
+    timestamp: new Date().toISOString(),
+  };
+
+  // 1. Check env vars
+  const secret = getLineSecret(businessId);
+  const accessToken = getLineAccessToken(businessId);
+  diagnostics.hasSecret = !!secret;
+  diagnostics.hasAccessToken = !!accessToken;
+  diagnostics.secretLength = secret.length;
+  diagnostics.tokenLength = accessToken.length;
+
+  // 2. Test pipeline
+  try {
+    const biz = getBusinessConfig(businessId);
+    diagnostics.businessName = biz.name;
+    diagnostics.productsCount = biz.products.length;
+
+    const testMessages: ChatMessage[] = [{ role: "user", content: "สวัสดี" }];
+    const { content, trace } = generatePipelineResponseWithTrace("สวัสดี", testMessages, biz);
+    diagnostics.pipelineResult = {
+      layer: trace.finalLayer,
+      layerName: trace.finalLayerName,
+      contentLength: content.length,
+      contentPreview: content.slice(0, 200),
+    };
+  } catch (err) {
+    diagnostics.pipelineError = String(err);
+  }
+
+  // 3. Test LINE API token validity
+  if (accessToken) {
+    try {
+      const res = await fetch("https://api.line.me/v2/bot/info", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = await res.text();
+      diagnostics.lineApiTest = {
+        status: res.status,
+        ok: res.ok,
+        body: body.slice(0, 500),
+      };
+    } catch (err) {
+      diagnostics.lineApiError = String(err);
+    }
+  }
+
+  return NextResponse.json(diagnostics);
 }
