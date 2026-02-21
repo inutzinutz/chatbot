@@ -33,6 +33,8 @@ interface ConversationContext {
 export interface TracedResult {
   content: string;
   trace: PipelineTrace;
+  /** True when Layer 1 admin escalation was triggered — webhook should auto-pin + disable bot + notify admin */
+  isAdminEscalation?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -604,7 +606,9 @@ export function generatePipelineResponseWithTrace(
     });
     finalLayer = 1;
     finalLayerName = "Safety: Admin Escalation";
-    return finishTrace(biz.buildAdminEscalationResponse());
+    const escalationResult = finishTrace(biz.buildAdminEscalationResponse());
+    escalationResult.isAdminEscalation = true;
+    return escalationResult;
   }
   addStep(1, "Admin Escalation", "ตรวจจับคำขอคุยกับแอดมิน/คนจริง", "skipped", t);
 
@@ -711,12 +715,19 @@ export function generatePipelineResponseWithTrace(
       case "training_request":
       case "deposit_policy":
       case "promotion_inquiry":
+      case "february_promotion":
       case "installment_inquiry":
       case "offtopic_sensitive":
       case "offtopic_playful":
       case "on_site_service":
       case "warranty_info":
       case "battery_symptom":
+      case "support_inquiry":
+      case "store_location_hours":
+        intentResponse = intent.responseTemplate;
+        break;
+      case "discontinued_model":
+        // Let Layer 4 (matchDiscontinued) handle this; if somehow missed, use template
         intentResponse = intent.responseTemplate;
         break;
       case "em_motorcycle": {

@@ -276,14 +276,16 @@ const evlifeConfig: BusinessConfig = {
   ],
 
   faqTerms: [
-    { keys: ["สั่งซื้อ", "สั่ง", "order", "buy", "ซื้อยังไง"], topic: "การสั่งซื้อ" },
-    { keys: ["ผ่อน", "installment", "บัตรเครดิต", "0%", "ชำระ", "payment"], topic: "การชำระเงิน" },
-    { keys: ["คืน", "เปลี่ยน", "return", "refund"], topic: "การคืนสินค้า" },
-    { keys: ["ประกัน", "warranty", "เคลม"], topic: "การรับประกัน" },
-    { keys: ["on-site", "ออนไซต์", "ถึงบ้าน", "เปลี่ยนถึง"], topic: "บริการ On-site" },
-    { keys: ["โปร", "ส่วนลด", "discount", "promotion", "coupon"], topic: "โปรโมชั่น" },
+    // Motorcycle-specific topics MUST come BEFORE generic "ประกัน"/"warranty" to avoid battery FAQ hit
+    { keys: ["ประกัน มอเตอร์ไซค์", "ประกัน em", "ประกัน legend", "ประกัน milan", "ประกัน owen", "warranty em", "warranty มอไซค์", "รับประกัน มอไซค์", "รับประกัน em", "รับประกัน legend"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
     { keys: ["จดทะเบียน", "ทะเบียน", "พรบ"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
     { keys: ["เปรียบเทียบ", "ต่างกัน", "compare", "vs"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
+    { keys: ["สั่งซื้อ", "สั่ง", "order", "buy", "ซื้อยังไง"], topic: "การสั่งซื้อ" },
+    { keys: ["ผ่อน", "installment", "บัตรเครดิต", "0%", "ชำระ", "payment method"], topic: "การชำระเงิน" },
+    { keys: ["คืนสินค้า", "return", "refund", "นโยบายคืน"], topic: "การคืนสินค้า" },
+    { keys: ["ประกัน", "warranty", "รับประกัน", "เคลม"], topic: "การรับประกัน" },
+    { keys: ["on-site", "ออนไซต์", "ถึงบ้าน", "เปลี่ยนถึง"], topic: "บริการ On-site" },
+    { keys: ["โปร", "ส่วนลด", "discount", "promotion", "coupon"], topic: "โปรโมชั่น" },
   ],
 };
 

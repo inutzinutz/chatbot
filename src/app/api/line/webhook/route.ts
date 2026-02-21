@@ -367,11 +367,83 @@ export async function POST(req: NextRequest) {
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace } =
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
+
+      // ── Admin Escalation (Layer 1): pin + disable bot + notify admin ──
+      if (isAdminEscalation) {
+        await chatStore.pinConversation(
+          businessId,
+          lineUserId,
+          `ลูกค้าขอคุยกับเจ้าหน้าที่ (L1 escalation)`
+        );
+
+        // Notify admin via LINE Push (send to admin LINE userId if configured)
+        const adminNotifyUserId = (process.env as Record<string, string | undefined>)[
+          envKey(businessId, "ADMIN_LINE_USER_ID")
+        ] || process.env.ADMIN_LINE_USER_ID;
+
+        if (adminNotifyUserId && accessToken) {
+          try {
+            await fetch("https://api.line.me/v2/bot/message/push", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+              },
+              body: JSON.stringify({
+                to: adminNotifyUserId,
+                messages: [
+                  {
+                    type: "text",
+                    text: `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"`,
+                  },
+                ],
+              }),
+            });
+          } catch {
+            // Non-critical: notification failure should not block reply
+          }
+        }
+
+        // Send escalation reply to customer, then stop bot
+        const escalationReply = stripMarkdown(pipelineContent);
+        try {
+          await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              replyToken,
+              messages: [{ type: "text", text: escalationReply }],
+            }),
+          });
+        } catch { /* reply token may expire */ }
+
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "bot",
+          content: escalationReply,
+          timestamp: Date.now(),
+          pipelineLayer: 1,
+          pipelineLayerName: "Safety: Admin Escalation",
+        });
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "admin",
+          content: `[ระบบ] ปักหมุดอัตโนมัติ — ลูกค้าขอคุยกับเจ้าหน้าที่ บอทหยุดตอบแล้ว`,
+          timestamp: Date.now(),
+        });
+
+        diag.escalated = true;
+        diag.autoPinned = true;
+        diag.skippedReason = "admin_escalation_bot_disabled";
+        results.push(diag);
+        continue;
+      }
 
       // ── Auto-pin: returning user (2hr+ gap) + deep fallback (L12+) ──
       if (isReturningUser && pipelineTrace.finalLayer >= 12) {
