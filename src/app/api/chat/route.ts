@@ -46,13 +46,82 @@ export async function POST(req: NextRequest) {
 
     // ══════════════════════════════════════════════════════
     // STEP 3: Pipeline reached Default Fallback (layer 14)
-    //         → Try GPT as last resort
+    //         → Priority 1: AI Agent (GPT-4o + function calling)
+    //         → Priority 2: Anthropic Claude (streaming)
+    //         → Priority 3: OpenAI GPT-4o-mini (streaming)
     // ══════════════════════════════════════════════════════
 
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-    // ── Priority 1: Anthropic Claude ──
+    // ── Priority 1: AI Agent (GPT-4o + function calling) ──
+    if (openaiKey) {
+      try {
+        const agentUrl = new URL("/api/agent", req.url);
+        const agentResp = await fetch(agentUrl.toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages,
+            businessId,
+            userMessage,
+            conversationId: req.headers.get("x-conversation-id") || undefined,
+          }),
+        });
+
+        if (agentResp.ok) {
+          const agentData = await agentResp.json() as {
+            content: string;
+            toolsUsed: string[];
+            iterations: number;
+            flaggedForAdmin?: boolean;
+            flagReason?: string;
+            flagUrgency?: string;
+          };
+
+          const agentTrace: PipelineTrace = {
+            totalDurationMs: pipelineTrace.totalDurationMs,
+            mode: "pipeline_then_agent",
+            steps: [
+              ...pipelineTrace.steps,
+              {
+                layer: 15,
+                name: "AI Agent (GPT-4o)",
+                description: `Pipeline ไม่ match → AI Agent ตอบด้วย function calling (${agentData.toolsUsed.length} tools, ${agentData.iterations} iterations)`,
+                status: "matched",
+                durationMs: 0,
+                details: {
+                  intent: `tools: ${agentData.toolsUsed.join(", ") || "none"}`,
+                  matchedTriggers: agentData.flaggedForAdmin
+                    ? [`⚠️ Admin flagged: ${agentData.flagReason}`]
+                    : [],
+                },
+              },
+            ],
+            finalLayer: 15,
+            finalLayerName: "AI Agent (GPT-4o + function calling)",
+            userMessage,
+            timestamp: new Date().toISOString(),
+          };
+
+          return NextResponse.json({
+            content: agentData.content,
+            trace: agentTrace,
+            agentMeta: {
+              toolsUsed: agentData.toolsUsed,
+              iterations: agentData.iterations,
+              flaggedForAdmin: agentData.flaggedForAdmin,
+              flagReason: agentData.flagReason,
+              flagUrgency: agentData.flagUrgency,
+            },
+          });
+        }
+      } catch (agentErr) {
+        console.error("[chat] Agent call failed, falling back:", agentErr);
+      }
+    }
+
+    // ── Priority 2: Anthropic Claude (streaming) ──
     if (anthropicKey) {
       const systemPrompt = buildSystemPrompt(biz);
 
