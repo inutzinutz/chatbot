@@ -85,6 +85,65 @@ export interface FollowUpResult {
   analyzedAt: number;
 }
 
+/**
+ * AI-generated summary for a single conversation.
+ * Key: chatsum:{businessId}:{userId}  TTL: 7 days
+ */
+export interface ChatSummary {
+  userId: string;
+  businessId: string;
+  displayName: string;
+  topic: string;            // Main topic discussed
+  outcome: string;          // How it ended (e.g. "ลูกค้าสนใจซื้อ Legend Pro", "resolved", "escalated")
+  sentiment: "positive" | "neutral" | "negative";
+  keyPoints: string[];      // Bullet points of conversation
+  pendingAction?: string;   // Action needed (e.g. "รอ admin ตอบกลับ", "ลูกค้ายังไม่ตัดสินใจ")
+  adminHandled: boolean;    // Whether a human admin responded
+  adminNames: string[];     // Usernames of admins who participated
+  messageCount: number;
+  duration: number;         // Duration in minutes (first to last message)
+  summarizedAt: number;
+  conversationDate: string; // YYYY-MM-DD (Thai TZ)
+}
+
+/**
+ * Daily digest for a business.
+ * Key: dailydigest:{businessId}:{date}  TTL: 30 days
+ * date format: YYYY-MM-DD
+ */
+export interface DailyDigest {
+  businessId: string;
+  date: string;             // YYYY-MM-DD
+  totalConversations: number;
+  newConversations: number;
+  resolvedConversations: number;
+  escalatedConversations: number;
+  pendingConversations: number;
+  avgResponseTimeMin: number;
+  topTopics: { topic: string; count: number }[];
+  adminActivity: { username: string; messagesSent: number; conversationsHandled: number }[];
+  pendingWork: PendingWork[];
+  generatedAt: number;
+}
+
+/**
+ * A single pending work item — conversation that needs attention.
+ */
+export interface PendingWork {
+  userId: string;
+  displayName: string;
+  businessId: string;
+  reason: string;           // Why it's pending
+  priority: "high" | "medium" | "low";
+  lastMessageAt: number;
+  lastMessage: string;
+  waitingHours: number;     // How long customer has been waiting
+  assignedAdmin?: string;   // Admin who last touched this
+  source: "line" | "web";
+  pinned: boolean;
+  botEnabled: boolean;
+}
+
 // ── Redis client singleton (reused across warm invocations) ──
 
 function createRedis(): Redis {
@@ -426,6 +485,137 @@ class ChatStore {
   async clearFollowUp(businessId: string, userId: string): Promise<void> {
     await redis.del(`followup:${businessId}:${userId}`);
     await redis.zrem(`followups:${businessId}`, userId);
+  }
+
+  // ── Chat Summaries ──
+  // Key: chatsum:{businessId}:{userId}           → JSON<ChatSummary>, TTL 7 days
+  // Key: chatsums:{businessId}:{date}            → Sorted set (score=summarizedAt, member=userId), TTL 30 days
+
+  async saveChatSummary(summary: ChatSummary): Promise<void> {
+    const key = `chatsum:${summary.businessId}:${summary.userId}`;
+    await setJSON(key, summary);
+    await redis.expire(key, 60 * 60 * 24 * 7);
+    // Index by date
+    const dateKey = `chatsums:${summary.businessId}:${summary.conversationDate}`;
+    await redis.zadd(dateKey, summary.summarizedAt, summary.userId);
+    await redis.expire(dateKey, 60 * 60 * 24 * 30);
+  }
+
+  async getChatSummary(businessId: string, userId: string): Promise<ChatSummary | null> {
+    return getJSON<ChatSummary>(`chatsum:${businessId}:${userId}`);
+  }
+
+  async getChatSummariesByDate(businessId: string, date: string): Promise<ChatSummary[]> {
+    const dateKey = `chatsums:${businessId}:${date}`;
+    const userIds = await redis.zrange(dateKey, 0, -1, "REV");
+    if (!userIds || userIds.length === 0) return [];
+
+    const pipeline = redis.pipeline();
+    for (const uid of userIds) pipeline.get(`chatsum:${businessId}:${uid}`);
+    const results = await pipeline.exec();
+    if (!results) return [];
+
+    return results
+      .map(([, raw]) => {
+        if (!raw || typeof raw !== "string") return null;
+        try { return JSON.parse(raw) as ChatSummary; } catch { return null; }
+      })
+      .filter((s): s is ChatSummary => s !== null);
+  }
+
+  async getAllChatSummaries(businessId: string, limit = 100): Promise<ChatSummary[]> {
+    // Get all conversation userIds, most recent first
+    const userIds = await redis.zrange(convsKey(businessId), 0, limit - 1, "REV");
+    if (!userIds || userIds.length === 0) return [];
+
+    const pipeline = redis.pipeline();
+    for (const uid of userIds) pipeline.get(`chatsum:${businessId}:${uid}`);
+    const results = await pipeline.exec();
+    if (!results) return [];
+
+    return results
+      .map(([, raw]) => {
+        if (!raw || typeof raw !== "string") return null;
+        try { return JSON.parse(raw) as ChatSummary; } catch { return null; }
+      })
+      .filter((s): s is ChatSummary => s !== null);
+  }
+
+  // ── Daily Digest ──
+  // Key: dailydigest:{businessId}:{date} → JSON<DailyDigest>, TTL 30 days
+
+  async saveDailyDigest(digest: DailyDigest): Promise<void> {
+    const key = `dailydigest:${digest.businessId}:${digest.date}`;
+    await setJSON(key, digest);
+    await redis.expire(key, 60 * 60 * 24 * 30);
+  }
+
+  async getDailyDigest(businessId: string, date: string): Promise<DailyDigest | null> {
+    return getJSON<DailyDigest>(`dailydigest:${businessId}:${date}`);
+  }
+
+  // ── Pending Work ──
+  // Computed on-the-fly from conversations (no separate store needed)
+
+  async getPendingWork(businessId: string): Promise<PendingWork[]> {
+    const convs = await this.getConversations(businessId);
+    const now = Date.now();
+    const pending: PendingWork[] = [];
+
+    for (const conv of convs) {
+      const waitingMs = now - conv.lastMessageAt;
+      const waitingHours = waitingMs / (1000 * 60 * 60);
+
+      // Criteria for "pending":
+      // 1. Pinned (escalated but not resolved)
+      // 2. Bot disabled but customer sent last message (needs human reply)
+      // 3. Customer last message > 2 hours ago with no admin response
+      const isPinned = conv.pinned === true;
+      const botOff = !conv.botEnabled;
+      const customerWaiting =
+        conv.lastMessageRole === "customer" && waitingHours > 2;
+
+      if (isPinned || (botOff && conv.lastMessageRole === "customer") || customerWaiting) {
+        let reason = "";
+        let priority: "high" | "medium" | "low" = "low";
+
+        if (isPinned) {
+          reason = "Escalated — รอ admin ดูแล";
+          priority = "high";
+        } else if (botOff && conv.lastMessageRole === "customer") {
+          reason = "Bot ปิดอยู่ — ลูกค้ารอ admin ตอบ";
+          priority = "high";
+        } else if (waitingHours > 24) {
+          reason = `ลูกค้ารอนาน ${Math.round(waitingHours)} ชม. แต่ยังไม่ได้รับการตอบ`;
+          priority = "medium";
+        } else {
+          reason = `ลูกค้ารอ ${Math.round(waitingHours)} ชม.`;
+          priority = "low";
+        }
+
+        pending.push({
+          userId: conv.userId,
+          displayName: conv.displayName,
+          businessId: conv.businessId,
+          reason,
+          priority,
+          lastMessageAt: conv.lastMessageAt,
+          lastMessage: conv.lastMessage,
+          waitingHours: Math.round(waitingHours * 10) / 10,
+          source: conv.source,
+          pinned: conv.pinned ?? false,
+          botEnabled: conv.botEnabled,
+        });
+      }
+    }
+
+    // Sort: high priority first, then by waiting time desc
+    return pending.sort((a, b) => {
+      const priorityOrder = { high: 0, medium: 1, low: 2 };
+      const pd = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (pd !== 0) return pd;
+      return b.waitingHours - a.waitingHours;
+    });
   }
 
   // ── LINE Channel Settings (persisted per business) ──
