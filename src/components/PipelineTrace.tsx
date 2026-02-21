@@ -294,6 +294,16 @@ function StepRow({ step, isLast, isFinal }: { step: PipelineStep; isLast: boolea
 
 function ModeBadge({ mode }: { mode: PipelineTrace["mode"] }) {
   const config: Record<string, { label: string; color: string; bg: string }> = {
+    claude_stream: {
+      label: "Claude Stream",
+      color: "text-violet-700",
+      bg: "bg-violet-50 border-violet-200",
+    },
+    claude_fallback: {
+      label: "Claude → Fallback",
+      color: "text-fuchsia-700",
+      bg: "bg-fuchsia-50 border-fuchsia-200",
+    },
     openai_stream: {
       label: "OpenAI Stream",
       color: "text-emerald-700",

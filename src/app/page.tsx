@@ -59,13 +59,25 @@ function SettingsPage() {
             key required.
           </p>
           <p className="text-xs text-amber-600">
-            Add{" "}
-            <code className="bg-amber-100 px-1 py-0.5 rounded">
+            Priority 1: Add{" "}
+            <code className="bg-violet-100 text-violet-700 px-1 py-0.5 rounded">
+              ANTHROPIC_API_KEY
+            </code>{" "}
+            to{" "}
+            <code className="bg-amber-100 px-1 py-0.5 rounded">.env.local</code>{" "}
+            for Claude Sonnet streaming.
+          </p>
+          <p className="text-xs text-amber-600">
+            Priority 2: Add{" "}
+            <code className="bg-emerald-100 text-emerald-700 px-1 py-0.5 rounded">
               OPENAI_API_KEY
             </code>{" "}
             to{" "}
             <code className="bg-amber-100 px-1 py-0.5 rounded">.env.local</code>{" "}
             for GPT-4o-mini streaming.
+          </p>
+          <p className="text-[10px] text-amber-500 mt-1">
+            If no API keys are set, the system uses Smart Fallback (15-layer pipeline) automatically.
           </p>
         </div>
 

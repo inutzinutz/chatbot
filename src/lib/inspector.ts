@@ -30,7 +30,7 @@ export interface PipelineStep {
 
 export interface PipelineTrace {
   totalDurationMs: number;
-  mode: "openai_stream" | "openai_fallback" | "fallback";
+  mode: "claude_stream" | "claude_fallback" | "openai_stream" | "openai_fallback" | "fallback";
   steps: PipelineStep[];
   finalLayer: number;
   finalLayerName: string;

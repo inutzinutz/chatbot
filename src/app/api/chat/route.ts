@@ -880,7 +880,7 @@ function generateFallbackResponseWithTrace(
 }
 
 // ─────────────────────────────────────────────────────────────
-// POST handler
+// POST handler — supports Anthropic Claude & OpenAI
 // ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -888,10 +888,150 @@ export async function POST(req: NextRequest) {
     const { messages } = (await req.json()) as { messages: ChatMessage[] };
     const userMessage = messages[messages.length - 1]?.content || "";
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
 
-    // If OpenAI API key is available, use it
-    if (apiKey) {
+    // ── Priority 1: Anthropic Claude ──
+    if (anthropicKey) {
+      const systemPrompt = buildSystemPrompt();
+
+      // Convert messages to Anthropic format (no "system" role in messages)
+      const anthropicMessages = messages.slice(-10).map((m) => ({
+        role: m.role === "system" ? ("user" as const) : m.role,
+        content: m.content,
+      }));
+
+      const response = await fetch(
+        "https://api.anthropic.com/v1/messages",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: anthropicMessages,
+            stream: true,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        // Fallback to local pipeline
+        const { content, trace } = generateFallbackResponseWithTrace(
+          userMessage,
+          messages
+        );
+        trace.mode = "claude_fallback";
+        return NextResponse.json({ content, trace });
+      }
+
+      // Build trace for Claude streaming mode
+      const claudeTrace: PipelineTrace = {
+        totalDurationMs: 0,
+        mode: "claude_stream",
+        steps: [
+          {
+            layer: 0,
+            name: "Claude Sonnet",
+            description:
+              "ส่งไปประมวลผลด้วย Claude Sonnet แบบ streaming (context-aware)",
+            status: "matched",
+            durationMs: 0,
+            details: {
+              intent: `${messages.length} messages in context`,
+            },
+          },
+        ],
+        finalLayer: 0,
+        finalLayerName: "Claude Sonnet",
+        userMessage,
+        timestamp: new Date().toISOString(),
+      };
+
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+      const streamStart = now();
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          claudeTrace.totalDurationMs =
+            Math.round((now() - streamStart) * 100) / 100;
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ trace: claudeTrace })}\n\n`
+            )
+          );
+
+          const reader = response.body?.getReader();
+          if (!reader) {
+            controller.close();
+            return;
+          }
+
+          try {
+            let buffer = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6).trim();
+                  if (!data) continue;
+                  try {
+                    const parsed = JSON.parse(data);
+
+                    // Anthropic SSE: content_block_delta
+                    if (
+                      parsed.type === "content_block_delta" &&
+                      parsed.delta?.type === "text_delta"
+                    ) {
+                      controller.enqueue(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ content: parsed.delta.text })}\n\n`
+                        )
+                      );
+                    }
+
+                    // Anthropic SSE: message_stop
+                    if (parsed.type === "message_stop") {
+                      controller.enqueue(
+                        encoder.encode("data: [DONE]\n\n")
+                      );
+                    }
+                  } catch {
+                    // skip malformed
+                  }
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock();
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // ── Priority 2: OpenAI ──
+    if (openaiKey) {
       const systemPrompt = buildSystemPrompt();
 
       const response = await fetch(
@@ -900,7 +1040,7 @@ export async function POST(req: NextRequest) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${openaiKey}`,
           },
           body: JSON.stringify({
             model: "gpt-4o-mini",
@@ -924,7 +1064,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ content, trace });
       }
 
-      // Build a trace for OpenAI streaming mode
       const openaiTrace: PipelineTrace = {
         totalDurationMs: 0,
         mode: "openai_stream",
@@ -1019,7 +1158,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // No API key - use fallback with trace (passing full messages for context!)
+    // ── Priority 3: Smart Fallback (no API key) ──
     const { content, trace } = generateFallbackResponseWithTrace(
       userMessage,
       messages
