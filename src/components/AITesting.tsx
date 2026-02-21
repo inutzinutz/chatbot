@@ -2,129 +2,31 @@
 
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import PipelineTracePanel from "./PipelineTrace";
+import type { PipelineTrace } from "@/lib/inspector";
 import {
   Send,
   Bot,
   User,
-  Shield,
-  MessageSquare,
-  Brain,
   Clock,
   CheckSquare,
   RotateCcw,
   Sparkles,
+  Trash2,
+  Zap,
   ChevronDown,
   ChevronRight,
   Copy,
   Check,
-  Trash2,
-  Zap,
 } from "lucide-react";
-
-interface AgentStep {
-  agent: "Supervise Agent" | "Intent Agent" | "Response Agent";
-  duration: number;
-  output: string;
-  intent?: string;
-  confidence?: number;
-}
 
 interface TestMessage {
   id: number;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-  agentSteps?: AgentStep[];
-}
-
-const AGENT_CONFIG: Record<
-  string,
-  { color: string; bg: string; border: string; icon: React.ReactNode }
-> = {
-  "Supervise Agent": {
-    color: "text-amber-700",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
-    icon: <Shield className="h-3.5 w-3.5" />,
-  },
-  "Intent Agent": {
-    color: "text-purple-700",
-    bg: "bg-purple-50",
-    border: "border-purple-200",
-    icon: <Brain className="h-3.5 w-3.5" />,
-  },
-  "Response Agent": {
-    color: "text-blue-700",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-    icon: <MessageSquare className="h-3.5 w-3.5" />,
-  },
-};
-
-function simulateAgentSteps(message: string): AgentStep[] {
-  const intents: Record<string, { intent: string; confidence: number }> = {
-    ราคา: { intent: "ask_price", confidence: 0.96 },
-    price: { intent: "ask_price", confidence: 0.95 },
-    โปรโมชั่น: { intent: "ask_promotion", confidence: 0.94 },
-    promotion: { intent: "ask_promotion", confidence: 0.93 },
-    ส่ง: { intent: "ask_shipping", confidence: 0.91 },
-    ship: { intent: "ask_shipping", confidence: 0.92 },
-    warranty: { intent: "ask_warranty", confidence: 0.93 },
-    ประกัน: { intent: "ask_warranty", confidence: 0.94 },
-    register: { intent: "ask_registration", confidence: 0.9 },
-    ลงทะเบียน: { intent: "ask_registration", confidence: 0.91 },
-    สี: { intent: "ask_product_detail", confidence: 0.89 },
-    color: { intent: "ask_product_detail", confidence: 0.88 },
-    spec: { intent: "ask_product_detail", confidence: 0.9 },
-    สเปค: { intent: "ask_product_detail", confidence: 0.89 },
-  };
-
-  const lowerMsg = message.toLowerCase();
-  let detectedIntent = { intent: "general_inquiry", confidence: 0.75 };
-  for (const [keyword, intentData] of Object.entries(intents)) {
-    if (lowerMsg.includes(keyword)) {
-      detectedIntent = intentData;
-      break;
-    }
-  }
-
-  const responses: Record<string, string> = {
-    ask_price:
-      "สินค้า DJI มีหลายรุ่นครับ เช่น DJI Mini 4 Pro ราคา 22,900-28,900 บาท, DJI Avata 2 ราคา 28,900-38,900 บาท, DJI Air 3 ราคา 32,900-42,900 บาท ต้องการทราบรุ่นไหนเพิ่มเติมครับ?",
-    ask_promotion:
-      "ตอนนี้มีโปรโมชั่นพิเศษครับ! DJI Mini 4 Pro ลด 10% และ DJI Avata 2 แถม DJI Care Refresh 1 ปี สนใจรุ่นไหนครับ?",
-    ask_shipping:
-      "เราจัดส่งทั่วประเทศไทยครับ ค่าส่งเริ่มต้น 50 บาท สั่งซื้อครบ 5,000 บาทขึ้นไปส่งฟรี! สำหรับต่างประเทศกรุณาติดต่อ LINE @dji13store ครับ",
-    ask_warranty:
-      "สินค้า DJI ทุกรุ่นมีประกันศูนย์ DJI 1 ปีครับ สามารถซื้อ DJI Care Refresh เพิ่มเติมเพื่อคุ้มครองอุบัติเหตุได้ครับ",
-    ask_registration:
-      "เราให้บริการลงทะเบียนโดรน กสทช. ฟรีสำหรับลูกค้าที่ซื้อกับเราครับ! เตรียมบัตรประชาชนและข้อมูลโดรนมาที่ร้านได้เลยครับ",
-    ask_product_detail:
-      "DJI Mini 4 Pro มีสีเทาเข้ม (Dark Gray) น้ำหนักเพียง 249g บินได้ไกล 20km ถ่ายวิดีโอ 4K/60fps มีระบบหลบสิ่งกีดขวางรอบทิศทางครับ",
-    general_inquiry:
-      "สวัสดีครับ! ยินดีให้บริการครับ ผมเป็น AI ของ DJI 13 STORE สามารถสอบถามเกี่ยวกับสินค้า DJI ราคา โปรโมชั่น การจัดส่ง หรือบริการหลังการขายได้เลยครับ",
-  };
-
-  return [
-    {
-      agent: "Supervise Agent",
-      duration: 800 + Math.floor(Math.random() * 400),
-      output: `Received message. Routing to Intent Agent for classification. Message length: ${message.length} chars.`,
-    },
-    {
-      agent: "Intent Agent",
-      duration: 1200 + Math.floor(Math.random() * 600),
-      output: `Classified intent: "${detectedIntent.intent}" with confidence ${(detectedIntent.confidence * 100).toFixed(1)}%`,
-      intent: detectedIntent.intent,
-      confidence: detectedIntent.confidence,
-    },
-    {
-      agent: "Response Agent",
-      duration: 1500 + Math.floor(Math.random() * 1000),
-      output: responses[detectedIntent.intent] || responses.general_inquiry,
-      intent: detectedIntent.intent,
-    },
-  ];
+  trace?: PipelineTrace;
+  responseTimeMs?: number;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -149,91 +51,8 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function AgentStepCard({
-  step,
-  index,
-  isLast,
-}: {
-  step: AgentStep;
-  index: number;
-  isLast: boolean;
-}) {
-  const [expanded, setExpanded] = useState(index === 2);
-  const config = AGENT_CONFIG[step.agent];
-
-  return (
-    <div className="relative">
-      {/* Timeline connector */}
-      {!isLast && (
-        <div className="absolute left-[15px] top-[32px] bottom-0 w-px bg-gray-200" />
-      )}
-
-      <div className="flex gap-3">
-        {/* Timeline dot */}
-        <div
-          className={cn(
-            "h-[30px] w-[30px] shrink-0 rounded-full flex items-center justify-center border-2 bg-white z-10",
-            config.border
-          )}
-        >
-          <span className={config.color}>{config.icon}</span>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0 pb-4">
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-2 w-full text-left group"
-          >
-            <span
-              className={cn(
-                "text-xs font-semibold",
-                config.color
-              )}
-            >
-              {step.agent}
-            </span>
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <Clock className="h-2.5 w-2.5" />
-              {step.duration.toLocaleString()} ms
-            </span>
-            {step.intent && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                {step.intent}
-              </span>
-            )}
-            {step.confidence && (
-              <span className="text-[10px] text-gray-400">
-                {(step.confidence * 100).toFixed(0)}%
-              </span>
-            )}
-            <span className="ml-auto text-gray-400 group-hover:text-gray-600 transition-colors">
-              {expanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </span>
-          </button>
-
-          {expanded && (
-            <div
-              className={cn(
-                "mt-2 rounded-lg p-3 text-xs leading-relaxed border",
-                config.bg,
-                config.border
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className={cn("flex-1", config.color)}>{step.output}</p>
-                <CopyButton text={step.output} />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default function AITesting() {
@@ -255,7 +74,7 @@ export default function AITesting() {
     }
   }, [input]);
 
-  const now = () => {
+  const nowStr = () => {
     const d = new Date();
     return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   };
@@ -268,7 +87,7 @@ export default function AITesting() {
       id: Date.now(),
       role: "user",
       content: trimmed,
-      timestamp: now(),
+      timestamp: nowStr(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -279,30 +98,131 @@ export default function AITesting() {
       textareaRef.current.style.height = "auto";
     }
 
-    // Simulate agent processing with delays
-    const steps = simulateAgentSteps(trimmed);
-    let totalDelay = 0;
+    const startTime = Date.now();
 
-    await new Promise<void>((resolve) => {
-      setTimeout(() => {
-        const responseContent =
-          steps.find((s) => s.agent === "Response Agent")?.output ||
-          "ขอโทษครับ ไม่สามารถประมวลผลได้ในขณะนี้";
+    try {
+      // Build messages array from conversation history (exclude welcome)
+      const apiMessages = [...messages, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages }),
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+
+      if (contentType.includes("text/event-stream")) {
+        // Handle SSE streaming (Claude or OpenAI mode)
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let assistantContent = "";
+        let streamTrace: PipelineTrace | undefined;
+        let assistantId: number | null = null;
+        let sseBuffer = "";
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split("\n");
+            sseBuffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+              if (trimmedLine.startsWith("data: ")) {
+                const data = trimmedLine.slice(6);
+                if (data === "[DONE]") break;
+                try {
+                  const parsed = JSON.parse(data);
+
+                  if (parsed.trace) {
+                    streamTrace = parsed.trace as PipelineTrace;
+                    continue;
+                  }
+
+                  if (parsed.content) {
+                    assistantContent += parsed.content;
+                    const responseTimeMs = Date.now() - startTime;
+
+                    if (assistantId === null) {
+                      assistantId = Date.now() + 1;
+                      const botMsg: TestMessage = {
+                        id: assistantId,
+                        role: "assistant",
+                        content: assistantContent,
+                        timestamp: nowStr(),
+                        trace: streamTrace,
+                        responseTimeMs,
+                      };
+                      setMessages((prev) => [...prev, botMsg]);
+                      setExpandedMessage(assistantId);
+                      setIsProcessing(false);
+                    } else {
+                      setMessages((prev) =>
+                        prev.map((m) =>
+                          m.id === assistantId
+                            ? { ...m, content: assistantContent, trace: streamTrace, responseTimeMs }
+                            : m
+                        )
+                      );
+                    }
+                  }
+                } catch {
+                  // skip malformed
+                }
+              }
+            }
+          }
+
+          // If no content was streamed, show error
+          if (assistantId === null) {
+            const botMsg: TestMessage = {
+              id: Date.now() + 1,
+              role: "assistant",
+              content: "ไม่ได้รับการตอบกลับจาก API",
+              timestamp: nowStr(),
+              responseTimeMs: Date.now() - startTime,
+            };
+            setMessages((prev) => [...prev, botMsg]);
+            setIsProcessing(false);
+          }
+        }
+      } else {
+        // Handle JSON response (fallback mode)
+        const data = await response.json();
+        const responseTimeMs = Date.now() - startTime;
 
         const botMsg: TestMessage = {
           id: Date.now() + 1,
           role: "assistant",
-          content: responseContent,
-          timestamp: now(),
-          agentSteps: steps,
+          content: data.content,
+          timestamp: nowStr(),
+          trace: data.trace as PipelineTrace | undefined,
+          responseTimeMs,
         };
 
         setMessages((prev) => [...prev, botMsg]);
         setExpandedMessage(botMsg.id);
         setIsProcessing(false);
-        resolve();
-      }, 1500 + Math.floor(Math.random() * 1000));
-    });
+      }
+    } catch {
+      const botMsg: TestMessage = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: "ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้งครับ",
+        timestamp: nowStr(),
+        responseTimeMs: Date.now() - startTime,
+      };
+      setMessages((prev) => [...prev, botMsg]);
+      setIsProcessing(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -317,9 +237,6 @@ export default function AITesting() {
     setExpandedMessage(null);
   };
 
-  const totalDuration = (steps: AgentStep[]) =>
-    steps.reduce((sum, s) => sum + s.duration, 0);
-
   return (
     <div className="flex-1 flex flex-col h-full min-h-0 bg-white">
       {/* Header */}
@@ -330,6 +247,7 @@ export default function AITesting() {
           </div>
           <div>
             <h2 className="text-lg font-bold text-gray-900">AI Testing</h2>
+            <p className="text-[10px] text-gray-400">Live API — real pipeline responses</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -343,9 +261,7 @@ export default function AITesting() {
             </button>
           )}
           <button
-            onClick={() => {
-              setInput("DJI Mini 4 Pro ราคาเท่าไหร่");
-            }}
+            onClick={() => setInput("DJI Mini 4 Pro ราคาเท่าไหร่")}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
           >
             <Sparkles className="h-3 w-3" />
@@ -370,8 +286,8 @@ export default function AITesting() {
                     AI Testing Playground
                   </h3>
                   <p className="text-xs text-gray-500 max-w-xs">
-                    Send a test message to see how each AI agent processes it.
-                    View the full pipeline: Supervise → Intent → Response.
+                    Send a test message to see how the real AI pipeline processes it.
+                    View the full Pipeline Trace with all 15 layers.
                   </p>
                   <div className="flex flex-wrap gap-1.5 justify-center pt-2">
                     {[
@@ -433,13 +349,22 @@ export default function AITesting() {
                           : "bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-md"
                       )}
                     >
-                      {msg.content}
+                      <div className="flex items-start gap-2">
+                        <span className="flex-1 whitespace-pre-wrap">{msg.content}</span>
+                        {msg.role === "assistant" && <CopyButton text={msg.content} />}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 mt-1 px-1">
                       <span className="text-[10px] text-gray-300">
                         {msg.timestamp}
                       </span>
-                      {msg.agentSteps && (
+                      {msg.responseTimeMs !== undefined && (
+                        <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                          <Clock className="h-2.5 w-2.5" />
+                          {msg.responseTimeMs.toLocaleString()} ms
+                        </span>
+                      )}
+                      {msg.trace && (
                         <button
                           onClick={() =>
                             setExpandedMessage(
@@ -449,7 +374,7 @@ export default function AITesting() {
                           className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-0.5 transition-colors"
                         >
                           <Zap className="h-2.5 w-2.5" />
-                          {totalDuration(msg.agentSteps).toLocaleString()} ms
+                          Pipeline
                           {expandedMessage === msg.id ? (
                             <ChevronDown className="h-2.5 w-2.5" />
                           ) : (
@@ -458,35 +383,15 @@ export default function AITesting() {
                         </button>
                       )}
                     </div>
+
+                    {/* Pipeline Trace (real data!) */}
+                    {msg.trace && expandedMessage === msg.id && (
+                      <div className="mt-1 w-full max-w-lg">
+                        <PipelineTracePanel trace={msg.trace} />
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Agent Steps (inline) */}
-                {msg.agentSteps && expandedMessage === msg.id && (
-                  <div className="ml-11 mt-3 mb-2 p-4 rounded-xl bg-gray-50/80 border border-gray-200">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-3">
-                      Agent Pipeline
-                    </p>
-                    {msg.agentSteps.map((step, i) => (
-                      <AgentStepCard
-                        key={step.agent}
-                        step={step}
-                        index={i}
-                        isLast={i === msg.agentSteps!.length - 1}
-                      />
-                    ))}
-                    <div className="flex items-center gap-2 pt-2 border-t border-gray-200 mt-1">
-                      <Clock className="h-3 w-3 text-gray-400" />
-                      <span className="text-[11px] font-medium text-gray-500">
-                        Total:{" "}
-                        {totalDuration(msg.agentSteps).toLocaleString()} ms
-                      </span>
-                      <span className="text-[10px] text-gray-400">
-                        ({msg.agentSteps.length} agents)
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
 
@@ -504,7 +409,7 @@ export default function AITesting() {
                       <div className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-[bounce_1.4s_ease-in-out_0.4s_infinite]" />
                     </div>
                     <span className="text-xs text-gray-400 animate-pulse">
-                      Processing through agents...
+                      Processing through pipeline...
                     </span>
                   </div>
                 </div>
@@ -545,80 +450,27 @@ export default function AITesting() {
               </button>
             </div>
             <p className="text-[10px] text-gray-400 mt-1.5 px-1">
-              Test mode — responses are simulated locally. Agent durations are
-              approximated.
+              Live mode — calls real /api/chat endpoint with full pipeline processing.
             </p>
           </div>
         </div>
 
-        {/* Right panel: Agent info */}
+        {/* Right panel: Test scenarios */}
         <div className="w-72 flex-shrink-0 overflow-y-auto p-4 space-y-4 hidden lg:block">
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-              Agent Pipeline
+              AI Pipeline
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {[
-                {
-                  name: "Supervise Agent",
-                  desc: "Routes incoming messages, manages conversation flow, and decides which agents to invoke.",
-                },
-                {
-                  name: "Intent Agent",
-                  desc: "Classifies user intent using NLP. Detects: pricing, shipping, warranty, registration, promotions.",
-                },
-                {
-                  name: "Response Agent",
-                  desc: "Generates the final response based on classified intent, product data, and conversation context.",
-                },
-              ].map((agent) => {
-                const config = AGENT_CONFIG[agent.name];
-                return (
-                  <div
-                    key={agent.name}
-                    className={cn(
-                      "rounded-lg p-3 border",
-                      config.bg,
-                      config.border
-                    )}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={config.color}>{config.icon}</span>
-                      <span
-                        className={cn("text-xs font-semibold", config.color)}
-                      >
-                        {agent.name}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                      {agent.desc}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="border-t border-gray-100 pt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-              Supported Intents
-            </h3>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                "ask_price",
-                "ask_promotion",
-                "ask_shipping",
-                "ask_warranty",
-                "ask_registration",
-                "ask_product_detail",
-                "general_inquiry",
-              ].map((intent) => (
-                <span
-                  key={intent}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-mono"
-                >
-                  {intent}
-                </span>
+                { name: "Claude Sonnet", desc: "Priority 1 — streaming with Anthropic API", color: "text-violet-600 bg-violet-50 border-violet-200" },
+                { name: "GPT-4o-mini", desc: "Priority 2 — streaming with OpenAI API", color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+                { name: "Smart Fallback", desc: "Priority 3 — 15-layer local pipeline, no API key needed", color: "text-indigo-600 bg-indigo-50 border-indigo-200" },
+              ].map((mode) => (
+                <div key={mode.name} className={cn("rounded-lg p-3 border", mode.color)}>
+                  <span className="text-xs font-semibold">{mode.name}</span>
+                  <p className="text-[10px] opacity-70 mt-0.5">{mode.desc}</p>
+                </div>
               ))}
             </div>
           </div>
@@ -633,8 +485,12 @@ export default function AITesting() {
                 { label: "Promotion check", msg: "มีโปรโมชั่นอะไรบ้าง" },
                 { label: "Shipping query", msg: "ส่งต่างประเทศได้ไหม" },
                 { label: "Warranty info", msg: "warranty for DJI Mini 4 Pro?" },
-                { label: "Registration", msg: "ลงทะเบียนโดรนยังไง" },
+                { label: "Follow-up test", msg: "แล้วราคาเท่าไหร่" },
                 { label: "Product specs", msg: "DJI Mini 4 Pro สเปคเป็นยังไง" },
+                { label: "Compare products", msg: "Mini 4 Pro กับ Air 3S อะไรดีกว่า" },
+                { label: "Admin escalation", msg: "ขอคุยกับแอดมินหน่อย" },
+                { label: "Discontinued product", msg: "DJI Mini 3 Pro มีไหม" },
+                { label: "Stock check", msg: "Avata 2 มีของไหม" },
               ].map((scenario) => (
                 <button
                   key={scenario.label}
@@ -649,6 +505,17 @@ export default function AITesting() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+              Tips
+            </h3>
+            <ul className="text-[11px] text-gray-500 space-y-1.5">
+              <li>Click <span className="text-indigo-500 font-medium">Pipeline</span> on a response to see the full trace</li>
+              <li>Send follow-up messages to test conversation context</li>
+              <li>Try short messages like &ldquo;ราคา&rdquo; after mentioning a product</li>
+            </ul>
           </div>
         </div>
       </div>

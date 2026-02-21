@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -163,7 +164,7 @@ function PromoModal({
 }
 
 export default function PromotionsPage() {
-  const [items, setItems] = useState<Promotion[]>([...initialPromotions]);
+  const [items, setItems] = useLocalStorage<Promotion[]>("dji13_promotions", [...initialPromotions]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Promotion | null | "new">(null);
   const [deleting, setDeleting] = useState<Promotion | null>(null);

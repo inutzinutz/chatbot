@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   channels as initialChannels,
   type ChannelInfo,
@@ -1035,8 +1036,9 @@ function ChannelCard({
 /* ------------------------------------------------------------------ */
 
 export default function ChannelsPage() {
-  const [channelList, setChannelList] = useState<ChannelInfo[]>(
-    () => initialChannels.map((ch) => structuredClone(ch))
+  const [channelList, setChannelList] = useLocalStorage<ChannelInfo[]>(
+    "dji13_channels",
+    initialChannels.map((ch) => structuredClone(ch))
   );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 

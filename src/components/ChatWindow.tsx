@@ -6,6 +6,7 @@ import ChatInput from "./ChatInput";
 import QuickReplies from "./QuickReplies";
 import { Bot, RotateCcw } from "lucide-react";
 import type { PipelineTrace } from "@/lib/inspector";
+import { trackChatEvent } from "@/lib/chatEvents";
 
 interface Message {
   id: string;
@@ -52,6 +53,13 @@ export default function ChatWindow() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
     setShowQuickReplies(false);
+
+    // Track outgoing message
+    trackChatEvent({
+      type: "message_sent",
+      messageLength: content.length,
+      messagePreview: content.slice(0, 100),
+    });
 
     try {
       const response = await fetch("/api/chat", {
@@ -147,6 +155,18 @@ export default function ChatWindow() {
           if (!assistantId) {
             await maybeFlushFirstToken();
           }
+
+          // Track streaming response
+          if (streamTrace) {
+            trackChatEvent({
+              type: "response_received",
+              mode: streamTrace.mode,
+              finalLayer: streamTrace.finalLayer,
+              finalLayerName: streamTrace.finalLayerName,
+              intent: streamTrace.finalIntent,
+              responseTimeMs: Date.now() - startedAt,
+            });
+          }
         }
       } else {
         // Handle JSON response (fallback mode)
@@ -157,14 +177,25 @@ export default function ChatWindow() {
           await sleep(minThinkingMs - elapsed);
         }
 
+        const trace = data.trace as PipelineTrace | undefined;
         const assistantMessage: Message = {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: data.content,
-          trace: data.trace as PipelineTrace | undefined,
+          trace,
         };
         setMessages((prev) => [...prev, assistantMessage]);
         setIsLoading(false);
+
+        // Track fallback response
+        trackChatEvent({
+          type: "response_received",
+          mode: trace?.mode,
+          finalLayer: trace?.finalLayer,
+          finalLayerName: trace?.finalLayerName,
+          intent: trace?.finalIntent,
+          responseTimeMs: Date.now() - startedAt,
+        });
       }
     } catch {
       const errorMessage: Message = {
@@ -182,6 +213,7 @@ export default function ChatWindow() {
     setMessages([WELCOME_MESSAGE]);
     setShowQuickReplies(true);
     setIsLoading(false);
+    trackChatEvent({ type: "session_start" });
   };
 
   return (

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -138,7 +139,7 @@ function RuleModal({
 }
 
 export default function ShippingPage() {
-  const [items, setItems] = useState<ShippingRule[]>([...initialRules]);
+  const [items, setItems] = useLocalStorage<ShippingRule[]>("dji13_shipping", [...initialRules]);
   const [editing, setEditing] = useState<ShippingRule | null | "new">(null);
   const [deleting, setDeleting] = useState<ShippingRule | null>(null);
 

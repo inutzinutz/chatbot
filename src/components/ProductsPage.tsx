@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { products as initialProducts, type Product, getCategories } from "@/lib/products";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -243,7 +244,7 @@ function DeleteConfirm({ name, onConfirm, onCancel }: { name: string; onConfirm:
 }
 
 export default function ProductsPage() {
-  const [items, setItems] = useState<Product[]>([...initialProducts]);
+  const [items, setItems] = useLocalStorage<Product[]>("dji13_products", [...initialProducts]);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");

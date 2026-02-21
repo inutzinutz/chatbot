@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { faqData as initialFAQ, type FAQItem } from "@/lib/faq";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -86,7 +87,8 @@ function QRModal({
 }
 
 export default function QuickRepliesPage() {
-  const [items, setItems] = useState<QuickReplyItem[]>(
+  const [items, setItems] = useLocalStorage<QuickReplyItem[]>(
+    "dji13_quick_replies",
     initialFAQ.map((f, i) => ({ ...f, id: i + 1 }))
   );
   const [search, setSearch] = useState("");

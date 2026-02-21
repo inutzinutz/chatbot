@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { saleScripts as initialScripts, type SaleScript } from "@/lib/saleScripts";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -155,7 +156,7 @@ function ScriptModal({
 }
 
 export default function SaleScriptsPage() {
-  const [items, setItems] = useState<SaleScript[]>([...initialScripts]);
+  const [items, setItems] = useLocalStorage<SaleScript[]>("dji13_sale_scripts", [...initialScripts]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<SaleScript | null | "new">(null);
   const [deleting, setDeleting] = useState<SaleScript | null>(null);

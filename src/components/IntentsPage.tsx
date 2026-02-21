@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { intents as initialIntents, type Intent } from "@/lib/intentPolicies";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search, Plus, Pencil, Trash2, X, Zap, Save,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight,
@@ -310,7 +311,7 @@ function IntentCard({
 
 // ─── Page ─────────────────────────────────────────────────────
 export default function IntentsPage() {
-  const [items, setItems] = useState<Intent[]>(initialIntents);
+  const [items, setItems] = useLocalStorage<Intent[]>("dji13_intents", [...initialIntents]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
   const [editing, setEditing] = useState<Intent | null | "new">(null);

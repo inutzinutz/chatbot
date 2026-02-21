@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { knowledgeDocs as initialDocs, type KnowledgeDoc } from "@/lib/knowledgeDocs";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
   Search,
   Plus,
@@ -114,7 +115,7 @@ function DocModal({
 }
 
 export default function KnowledgePage() {
-  const [items, setItems] = useState<KnowledgeDoc[]>([...initialDocs]);
+  const [items, setItems] = useLocalStorage<KnowledgeDoc[]>("dji13_knowledge", [...initialDocs]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<KnowledgeDoc | null | "new">(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);

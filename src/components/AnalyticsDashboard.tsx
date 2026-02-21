@@ -1,6 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { analyticsData } from "@/lib/analytics";
+import { getChatEvents, computeAnalytics, clearChatEvents } from "@/lib/chatEvents";
+import type { ComputedAnalytics } from "@/lib/chatEvents";
 import {
   Users,
   MessageSquare,
@@ -11,6 +14,10 @@ import {
   Languages,
   Search,
   Clock,
+  Layers,
+  Cpu,
+  Trash2,
+  Activity,
 } from "lucide-react";
 
 function StatCard({
@@ -32,6 +39,7 @@ function StatCard({
     purple: "from-purple-50 to-purple-100 border-purple-200 text-purple-600",
     orange: "from-orange-50 to-orange-100 border-orange-200 text-orange-600",
     indigo: "from-indigo-50 to-indigo-100 border-indigo-200 text-indigo-600",
+    violet: "from-violet-50 to-violet-100 border-violet-200 text-violet-600",
   };
   const c = colorMap[color] || colorMap.blue;
 
@@ -194,126 +202,360 @@ function LanguagePills({
   );
 }
 
+/** Mode label mapping */
+const MODE_LABELS: Record<string, string> = {
+  claude_stream: "Claude Stream",
+  claude_fallback: "Claude Fallback",
+  openai_stream: "OpenAI Stream",
+  openai_fallback: "OpenAI Fallback",
+  fallback: "Smart Fallback",
+};
+
 export default function AnalyticsDashboard() {
   const d = analyticsData;
   const usagePct = Math.round((d.package.currentUsage / d.package.monthlyLimit) * 100);
+
+  const [liveStats, setLiveStats] = useState<ComputedAnalytics | null>(null);
+  const [tab, setTab] = useState<"baseline" | "live">("baseline");
+
+  // Load live stats from localStorage
+  useEffect(() => {
+    const events = getChatEvents();
+    if (events.length > 0) {
+      setLiveStats(computeAnalytics(events));
+    }
+
+    // Refresh every 5 seconds
+    const interval = setInterval(() => {
+      const freshEvents = getChatEvents();
+      if (freshEvents.length > 0) {
+        setLiveStats(computeAnalytics(freshEvents));
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleClearLive = () => {
+    clearChatEvents();
+    setLiveStats(null);
+  };
 
   return (
     <div className="flex-1 overflow-y-auto bg-gray-50/50">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
         {/* Page Header */}
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Analytics</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Customer Summary &mdash; Last 30 Days
-          </p>
-        </div>
-
-        {/* Stat Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            icon={Users}
-            label="Current Usage"
-            value={d.package.currentUsage.toLocaleString()}
-            sub="customers this month"
-            color="blue"
-          />
-          <StatCard
-            icon={TrendingUp}
-            label="Monthly Limit"
-            value={d.package.monthlyLimit.toLocaleString()}
-            sub={`${usagePct}% used`}
-            color="green"
-          />
-          <StatCard
-            icon={MessageSquare}
-            label="Avg Messages"
-            value={d.conversation.avgMessages}
-            sub="per customer"
-            color="indigo"
-          />
-          <StatCard
-            icon={Flame}
-            label="Max Messages"
-            value={d.conversation.maxMessages}
-            sub="longest conversation"
-            color="orange"
-          />
-        </div>
-
-        {/* Hourly Contact Pattern */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="h-4 w-4 text-blue-500" />
-            <h3 className="text-sm font-semibold text-gray-900">
-              Contact Time Pattern
-            </h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Analytics</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Customer Summary &mdash; Last 30 Days
+            </p>
           </div>
-          <HourlyChart data={d.hourlyContacts} />
-          <div className="flex justify-between mt-2 text-[9px] text-gray-400 px-1">
-            <span>12AM</span>
-            <span>6AM</span>
-            <span>12PM</span>
-            <span>6PM</span>
-            <span>11PM</span>
-          </div>
-        </div>
-
-        {/* Two Column: Intents + Keywords */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <BarChart3 className="h-4 w-4 text-orange-500" />
-              <h3 className="text-sm font-semibold text-gray-900">
-                Popular Intents
-              </h3>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              <button
+                onClick={() => setTab("baseline")}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  tab === "baseline"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                Baseline Data
+              </button>
+              <button
+                onClick={() => setTab("live")}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1 ${
+                  tab === "live"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Activity className="h-3 w-3" />
+                Live Tracking
+                {liveStats && liveStats.totalMessages > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">
+                    {liveStats.totalMessages}
+                  </span>
+                )}
+              </button>
             </div>
-            <BarChartSimple
-              data={d.intents as unknown as Record<string, unknown>[]}
-              labelKey="intent"
-              valueKey="count"
-              color="#f97316"
-            />
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Search className="h-4 w-4 text-indigo-500" />
-              <h3 className="text-sm font-semibold text-gray-900">
-                Top Keywords
-              </h3>
-            </div>
-            <BarChartSimple
-              data={d.topKeywords as unknown as Record<string, unknown>[]}
-              labelKey="keyword"
-              valueKey="count"
-              color="#6366f1"
-            />
           </div>
         </div>
 
-        {/* Two Column: Platform + Language */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Globe className="h-4 w-4 text-blue-500" />
-              <h3 className="text-sm font-semibold text-gray-900">
-                Platform Distribution
-              </h3>
+        {tab === "baseline" ? (
+          /* ── BASELINE TAB ── */
+          <>
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                icon={Users}
+                label="Current Usage"
+                value={d.package.currentUsage.toLocaleString()}
+                sub="customers this month"
+                color="blue"
+              />
+              <StatCard
+                icon={TrendingUp}
+                label="Monthly Limit"
+                value={d.package.monthlyLimit.toLocaleString()}
+                sub={`${usagePct}% used`}
+                color="green"
+              />
+              <StatCard
+                icon={MessageSquare}
+                label="Avg Messages"
+                value={d.conversation.avgMessages}
+                sub="per customer"
+                color="indigo"
+              />
+              <StatCard
+                icon={Flame}
+                label="Max Messages"
+                value={d.conversation.maxMessages}
+                sub="longest conversation"
+                color="orange"
+              />
             </div>
-            <PlatformPills data={d.platforms} />
-          </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Languages className="h-4 w-4 text-emerald-500" />
-              <h3 className="text-sm font-semibold text-gray-900">
-                Language Distribution
-              </h3>
+            {/* Hourly Contact Pattern */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="h-4 w-4 text-blue-500" />
+                <h3 className="text-sm font-semibold text-gray-900">
+                  Contact Time Pattern
+                </h3>
+              </div>
+              <HourlyChart data={d.hourlyContacts} />
+              <div className="flex justify-between mt-2 text-[9px] text-gray-400 px-1">
+                <span>12AM</span>
+                <span>6AM</span>
+                <span>12PM</span>
+                <span>6PM</span>
+                <span>11PM</span>
+              </div>
             </div>
-            <LanguagePills data={d.languages} />
-          </div>
-        </div>
+
+            {/* Two Column: Intents + Keywords */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart3 className="h-4 w-4 text-orange-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Popular Intents
+                  </h3>
+                </div>
+                <BarChartSimple
+                  data={d.intents as unknown as Record<string, unknown>[]}
+                  labelKey="intent"
+                  valueKey="count"
+                  color="#f97316"
+                />
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Search className="h-4 w-4 text-indigo-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Top Keywords
+                  </h3>
+                </div>
+                <BarChartSimple
+                  data={d.topKeywords as unknown as Record<string, unknown>[]}
+                  labelKey="keyword"
+                  valueKey="count"
+                  color="#6366f1"
+                />
+              </div>
+            </div>
+
+            {/* Two Column: Platform + Language */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Globe className="h-4 w-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Platform Distribution
+                  </h3>
+                </div>
+                <PlatformPills data={d.platforms} />
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Languages className="h-4 w-4 text-emerald-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Language Distribution
+                  </h3>
+                </div>
+                <LanguagePills data={d.languages} />
+              </div>
+            </div>
+          </>
+        ) : (
+          /* ── LIVE TRACKING TAB ── */
+          <>
+            {!liveStats || liveStats.totalMessages === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-12 shadow-sm text-center">
+                <div className="mx-auto h-14 w-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mb-4">
+                  <Activity className="h-6 w-6 text-emerald-500" />
+                </div>
+                <h3 className="text-sm font-bold text-gray-900 mb-1">
+                  No Live Data Yet
+                </h3>
+                <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                  Start chatting with the AI in the Chat or AI Testing page.
+                  Events will be tracked automatically and displayed here.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Live stat cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard
+                    icon={MessageSquare}
+                    label="Messages Sent"
+                    value={liveStats.totalMessages}
+                    sub="from this browser"
+                    color="blue"
+                  />
+                  <StatCard
+                    icon={Cpu}
+                    label="AI Responses"
+                    value={liveStats.totalResponses}
+                    sub="pipeline processed"
+                    color="green"
+                  />
+                  <StatCard
+                    icon={Clock}
+                    label="Avg Response"
+                    value={`${liveStats.avgResponseTimeMs}ms`}
+                    sub="response time"
+                    color="violet"
+                  />
+                  <StatCard
+                    icon={Layers}
+                    label="Sessions"
+                    value={liveStats.totalSessions}
+                    sub="chat resets"
+                    color="orange"
+                  />
+                </div>
+
+                {/* Live hourly pattern */}
+                {liveStats.hourlyDistribution.some((h) => h.count > 0) && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Clock className="h-4 w-4 text-emerald-500" />
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Live Contact Pattern
+                      </h3>
+                      <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
+                        Live
+                      </span>
+                    </div>
+                    <HourlyChart data={liveStats.hourlyDistribution} />
+                    <div className="flex justify-between mt-2 text-[9px] text-gray-400 px-1">
+                      <span>12AM</span>
+                      <span>6AM</span>
+                      <span>12PM</span>
+                      <span>6PM</span>
+                      <span>11PM</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Two Column: Mode + Layer Distribution */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {liveStats.modeDistribution.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Cpu className="h-4 w-4 text-violet-500" />
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          AI Mode Distribution
+                        </h3>
+                      </div>
+                      <BarChartSimple
+                        data={liveStats.modeDistribution.map((m) => ({
+                          mode: MODE_LABELS[m.mode] || m.mode,
+                          count: m.count,
+                        })) as unknown as Record<string, unknown>[]}
+                        labelKey="mode"
+                        valueKey="count"
+                        color="#8b5cf6"
+                      />
+                    </div>
+                  )}
+
+                  {liveStats.layerDistribution.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Layers className="h-4 w-4 text-indigo-500" />
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          Pipeline Layer Resolution
+                        </h3>
+                      </div>
+                      <BarChartSimple
+                        data={liveStats.layerDistribution as unknown as Record<string, unknown>[]}
+                        labelKey="layer"
+                        valueKey="count"
+                        color="#6366f1"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Two Column: Intents + Keywords (from live data) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {liveStats.topIntents.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <BarChart3 className="h-4 w-4 text-orange-500" />
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          Detected Intents (Live)
+                        </h3>
+                      </div>
+                      <BarChartSimple
+                        data={liveStats.topIntents as unknown as Record<string, unknown>[]}
+                        labelKey="intent"
+                        valueKey="count"
+                        color="#f97316"
+                      />
+                    </div>
+                  )}
+
+                  {liveStats.topKeywords.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Search className="h-4 w-4 text-indigo-500" />
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          Top Keywords (Live)
+                        </h3>
+                      </div>
+                      <BarChartSimple
+                        data={liveStats.topKeywords as unknown as Record<string, unknown>[]}
+                        labelKey="keyword"
+                        valueKey="count"
+                        color="#6366f1"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Clear button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleClearLive}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Clear Live Data
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
