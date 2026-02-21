@@ -812,9 +812,30 @@ export function generatePipelineResponseWithTrace(
         const budget = budgetMatch
           ? parseInt(budgetMatch[1].replace(/,/g, ""))
           : null;
-        const pool = budget
+
+        // Detect context: is the customer asking about a motorcycle or a car battery?
+        const MOTO_SIGNALS = ["คัน", "มอไซ", "มอเตอร์ไซ", "motorcycle", "ขับ", "ขี่", "em ", " em", "legend", "milan", "owen", "endo", "หมู่บ้าน", "ในเมือง", "ทางไกล"];
+        const BATTERY_SIGNALS = ["แบต", "battery", "byd", "tesla", "mg ", " mg", "neta", "volvo", "bmw", "mercedes", "ora", "ev ", " ev", "รถ", "car"];
+        const isMotoContext = MOTO_SIGNALS.some((s) => lower.includes(s));
+        const isBatteryContext = BATTERY_SIGNALS.some((s) => lower.includes(s));
+
+        let pool = budget
           ? biz.getActiveProducts().filter((p) => p.price <= budget)
           : biz.getCheapestProducts(5);
+
+        // Narrow pool to relevant category when context is clear
+        if (isMotoContext && !isBatteryContext) {
+          const motoPool = pool.filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+          if (motoPool.length > 0) pool = motoPool;
+        } else if (isBatteryContext && !isMotoContext) {
+          const batPool = pool.filter((p) => p.category === "แบตเตอรี่ EV");
+          if (batPool.length > 0) pool = batPool;
+        } else if (!isMotoContext && !isBatteryContext) {
+          // No clear context — prefer motorcycles first since they have meaningful price-point decisions
+          const motoPool = pool.filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+          if (motoPool.length > 0) pool = motoPool;
+        }
+
         if (pool.length === 0) {
           intentResponse = `ขออภัยครับ ไม่พบสินค้าในงบประมาณที่ระบุ\n\nสินค้าราคาเริ่มต้นของเราครับ:\n${biz.getCheapestProducts(3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}`;
         } else {
@@ -830,7 +851,21 @@ export function generatePipelineResponseWithTrace(
         break;
       }
       case "recommendation": {
-        const popular = biz.getActiveProducts().slice(0, 4);
+        // Detect context — prefer motorcycles if message hints at riding/vehicle
+        const MOTO_REC_SIGNALS = ["คัน", "มอไซ", "มอเตอร์ไซ", "motorcycle", "ขับ", "ขี่", "em ", " em", "legend", "milan", "owen", "หมู่บ้าน", "ในเมือง", "ทางไกล", "แนะนำคัน", "รุ่นไหน", "คันไหน"];
+        const BATTERY_REC_SIGNALS = ["แบต", "battery", "byd", "tesla", "mg", "neta", "volvo", "bmw", "mercedes", "ora", "รถยนต์", "รถ ev"];
+        const lowerRec = lower;
+        const wantsMoto = MOTO_REC_SIGNALS.some((s) => lowerRec.includes(s));
+        const wantsBattery = BATTERY_REC_SIGNALS.some((s) => lowerRec.includes(s));
+
+        let recProducts = biz.getActiveProducts();
+        if (wantsMoto && !wantsBattery) {
+          recProducts = recProducts.filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+        } else if (wantsBattery && !wantsMoto) {
+          recProducts = recProducts.filter((p) => p.category === "แบตเตอรี่ EV");
+        }
+
+        const popular = recProducts.slice(0, 4);
         const list = popular
           .map(
             (p) =>
