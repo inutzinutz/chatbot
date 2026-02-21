@@ -1,4 +1,4 @@
-﻿/* ------------------------------------------------------------------ */
+﻿﻿/* ------------------------------------------------------------------ */
 /*  Shared Pipeline — used by /api/chat and /api/line/webhook          */
 /* ------------------------------------------------------------------ */
 
@@ -370,8 +370,11 @@ function buildDetailedEMResponse(p: Product, biz: BusinessConfig): string {
   if (specLine) {
     const motor = specLine.match(/Motor:\s*([^\|]+)/)?.[1]?.trim() || "";
     const battery = specLine.match(/Battery:\s*([^\|]+)/)?.[1]?.trim() || "";
-    const range = specLine.match(/Range:\s*([^\|]+)/)?.[1]?.trim() || "";
-    const speed = specLine.match(/Top Speed:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const rangeRaw = specLine.match(/Range:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const speedRaw = specLine.match(/Top Speed:\s*([^\|]+)/)?.[1]?.trim() || "";
+    // Strip trailing unit suffixes to avoid double-printing
+    const range = rangeRaw.replace(/\s*km\s*$/i, "").trim();
+    const speed = speedRaw.replace(/\s*km\/h\s*$/i, "").trim();
     const charge = specLine.match(/Charge:\s*([^\|]+)/)?.[1]?.trim() || "";
     if (motor) lines.push(`  • มอเตอร์: ${motor}`);
     if (battery) lines.push(`  • แบตเตอรี่: ${battery}`);
@@ -848,6 +851,53 @@ export function generatePipelineResponseWithTrace(
           intentResponse = intent.responseTemplate;
           break;
         }
+        // -- Comparison mode: user asks to compare two models --
+        const CMP_SIGNALS = ["กับ", "vs", "ต่างกัน", "เปรียบ", "หรือ"];
+        const isCompare = CMP_SIGNALS.some((s) => lower.includes(s));
+        if (isCompare) {
+          const mentioned = emProducts.filter((p) => {
+            const nl = p.name.toLowerCase();
+            const mn = nl.startsWith("em ") ? nl.slice(3) : nl;
+            return lower.includes(nl) || lower.includes(mn) ||
+              p.tags.some((tag) => tag.length > 2 && lower.includes(tag.toLowerCase()));
+          });
+          if (mentioned.length >= 2) {
+            const [pa, pb] = mentioned.slice(0, 2);
+            const getSpec = (p: Product) => {
+              const sl = p.description.split("\n").find((l: string) => l.includes("Motor:"));
+              if (!sl) return { motor: "-", battery: "-", range: "-", speed: "-", charge: "-" };
+              const rr = sl.match(/Range:\s*([^\|]+)/)?.[1]?.trim() ?? "-";
+              const sr = sl.match(/Top Speed:\s*([^\|]+)/)?.[1]?.trim() ?? "-";
+              return {
+                motor:   sl.match(/Motor:\s*([^\|]+)/)?.[1]?.trim() ?? "-",
+                battery: sl.match(/Battery:\s*([^\|]+)/)?.[1]?.trim() ?? "-",
+                range:   rr.replace(/\s*km\s*$/i, "").trim(),
+                speed:   sr.replace(/\s*km\/h\s*$/i, "").trim(),
+                charge:  sl.match(/Charge:\s*([^\|]+)/)?.[1]?.trim() ?? "-",
+              };
+            };
+            const sa = getSpec(pa); const sb = getSpec(pb);
+            const sep = "|---|---|---|";
+            intentResponse = [
+              `เปรียบเทียบ **${pa.name}** กับ **${pb.name}**`,
+              "",
+              `| สเปค | ${pa.name} | ${pb.name} |`,
+              sep,
+              `| ราคา | ${pa.price.toLocaleString()} บาท | ${pb.price.toLocaleString()} บาท |`,
+              `| มอเตอร์ | ${sa.motor} | ${sb.motor} |`,
+              `| แบตเตอรี่ | ${sa.battery} | ${sb.battery} |`,
+              `| ระยะวิ่ง | ${sa.range} กม./ชาร์จ | ${sb.range} กม./ชาร์จ |`,
+              `| ความเร็วสูงสุด | ${sa.speed} กม./ชม. | ${sb.speed} กม./ชม. |`,
+              `| ชาร์จ | ${sa.charge} | ${sb.charge} |`,
+              "",
+              `สนใจรุ่นไหนครับ? หรืออยากให้แนะนำตามการใช้งาน?`,
+            ].join("\n");
+            intentDetails.matchedProducts = [pa.name, pb.name];
+            break;
+          }
+        }
+
+        // ── Single model or catalog ──
         const specificModel = findSpecificProductInCategory(lower, emProducts, "EM ");
         if (specificModel) {
           intentResponse = buildDetailedEMResponse(specificModel, biz);
