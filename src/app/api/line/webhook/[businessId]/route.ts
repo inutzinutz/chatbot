@@ -404,6 +404,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
         timestamp: Date.now(),
       });
 
+      // ── Cancel Escalation: re-enable bot if customer wants bot back ──
+      const CANCEL_ESCALATION_TRIGGERS = [
+        "ไม่ต้องแล้ว", "คุยกับบอทก่อน", "คุยกับบอท", "ไม่ต้องการแอดมิน",
+        "บอทก็ได้", "ยกเลิก", "cancel", "nevermind", "never mind",
+        "bot ก็ได้", "ai ก็ได้", "ถามบอทก่อน", "ถามบอท",
+      ];
+      const isCancelMsg = CANCEL_ESCALATION_TRIGGERS.some((t) =>
+        userText.toLowerCase().includes(t.toLowerCase())
+      );
+      if (isCancelMsg && !conv.botEnabled) {
+        await chatStore.toggleBot(businessId, lineUserId, true);
+        await chatStore.unpinConversation(businessId, lineUserId);
+        diag.cancelledEscalation = true;
+      }
+
       // ── Check business hours ──
       const withinHours = lineSettings?.businessHours
         ? isWithinBusinessHours(lineSettings.businessHours)
@@ -451,11 +466,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation } =
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
+
+      // ── Cancel Escalation confirmed by pipeline — log system message ──
+      if (isCancelEscalation) {
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "admin",
+          content: "[ระบบ] ลูกค้าขอคุยกับบอทต่อ — ปลดหมุดและเปิดบอทอัตโนมัติแล้ว",
+          timestamp: Date.now(),
+        });
+        diag.cancelEscalationConfirmed = true;
+      }
 
       // ── Admin Escalation (Layer 1): pin + disable bot + notify admin ──
       if (isAdminEscalation) {

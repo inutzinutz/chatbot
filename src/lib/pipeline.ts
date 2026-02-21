@@ -41,6 +41,11 @@ export interface TracedResult {
    * Web chat → send as clickable option chips.
    */
   clarifyOptions?: string[];
+  /**
+   * True when the customer cancelled escalation and wants the bot back.
+   * LINE webhook should re-enable bot + unpin conversation when this is set.
+   */
+  isCancelEscalation?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -758,6 +763,17 @@ export function generatePipelineResponseWithTrace(
     let intentResponse: string | null = null;
 
     switch (intent.id) {
+      case "cancel_escalation": {
+        // Signal to the webhook: re-enable bot + unpin, then reply normally
+        const cancelResult = finishTrace(intent.responseTemplate);
+        cancelResult.isCancelEscalation = true;
+        cancelResult.clarifyOptions = ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
+        addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = `Intent: ${intent.name}`;
+        finalIntent = intent.id;
+        return cancelResult;
+      }
       case "greeting": {
         // Return template + clarifyOptions for web chat chip buttons
         const greetResult = finishTrace(intent.responseTemplate);
