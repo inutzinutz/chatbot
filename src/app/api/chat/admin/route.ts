@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
+import { analyzeConversation } from "@/lib/followupAgent";
+import { getBusinessConfig } from "@/lib/businessUnits";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow longer for AI analysis
 
 /* ------------------------------------------------------------------ */
 /*  Admin Chat API                                                      */
-/*  GET  — list conversations or get messages for a user                */
-/*  POST — send message, toggle bot, mark read                          */
+/*  GET  — list conversations, messages, or follow-ups                  */
+/*  POST — send message, toggle bot, mark read, analyze follow-ups     */
 /* ------------------------------------------------------------------ */
 
 // ── Env helpers (same pattern as webhook) ──
@@ -38,13 +41,21 @@ export async function GET(req: NextRequest) {
   }
 
   const userId = req.nextUrl.searchParams.get("userId");
+  const view = req.nextUrl.searchParams.get("view");
+
+  // View follow-ups
+  if (view === "followups") {
+    const followups = await chatStore.getAllFollowUps(businessId);
+    return NextResponse.json({ followups });
+  }
 
   if (userId) {
     // Get messages for a specific conversation
     const messages = await chatStore.getMessages(businessId, userId);
     const conversations = await chatStore.getConversations(businessId);
     const conversation = conversations.find((c) => c.userId === userId) || null;
-    return NextResponse.json({ conversation, messages });
+    const followup = await chatStore.getFollowUp(businessId, userId);
+    return NextResponse.json({ conversation, messages, followup });
   }
 
   // List all conversations + global bot status
@@ -185,6 +196,127 @@ export async function POST(req: NextRequest) {
         success: true,
         globalBotEnabled: globalEnabled,
       });
+    }
+
+    // ── Analyze all conversations for follow-up ──
+    case "analyzeFollowups": {
+      const bizConfig = getBusinessConfig(businessId);
+      const allConversations = await chatStore.getConversations(businessId);
+
+      // Only analyze conversations active in last 7 days
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const recent = allConversations.filter(
+        (c) => c.lastMessageAt > sevenDaysAgo
+      );
+
+      let analyzed = 0;
+      let flagged = 0;
+
+      for (const conv of recent) {
+        const msgs = await chatStore.getMessages(businessId, conv.userId);
+        const result = await analyzeConversation(msgs, conv, bizConfig.name);
+        await chatStore.setFollowUp(businessId, conv.userId, result);
+        analyzed++;
+        if (result.needsFollowup) flagged++;
+      }
+
+      return NextResponse.json({ success: true, analyzed, flagged });
+    }
+
+    // ── Send follow-up message to customer ──
+    case "sendFollowup": {
+      const message = body.message as string;
+      if (!userId || !message) {
+        return NextResponse.json(
+          { error: "Missing userId or message" },
+          { status: 400 }
+        );
+      }
+
+      // Store admin message
+      const stored = await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: message,
+        timestamp: Date.now(),
+      });
+
+      // Send via LINE Push API
+      const accessToken = getLineAccessToken(businessId);
+      if (accessToken) {
+        try {
+          const pushRes = await fetch(
+            "https://api.line.me/v2/bot/message/push",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+              },
+              body: JSON.stringify({
+                to: userId,
+                messages: [{ type: "text", text: message }],
+              }),
+            }
+          );
+          if (!pushRes.ok) {
+            const errBody = await pushRes.text().catch(() => "");
+            console.error(`[Admin] Follow-up push failed: ${pushRes.status} ${errBody}`);
+          }
+        } catch (err) {
+          console.error("[Admin] Follow-up push error:", err);
+        }
+      }
+
+      // Clear follow-up flag
+      await chatStore.clearFollowUp(businessId, userId);
+      return NextResponse.json({ success: true, messageId: stored.id });
+    }
+
+    // ── Dismiss follow-up (clear flag without sending) ──
+    case "dismissFollowup": {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "Missing userId" },
+          { status: 400 }
+        );
+      }
+      await chatStore.clearFollowUp(businessId, userId);
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Pin conversation ──
+    case "pin": {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "Missing userId" },
+          { status: 400 }
+        );
+      }
+      const reason = (body.reason as string) || "ปักหมุดโดยแอดมิน";
+      await chatStore.pinConversation(businessId, userId, reason);
+      await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: `[ระบบ] ปักหมุดแล้ว — ${reason}`,
+        timestamp: Date.now(),
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Unpin conversation ──
+    case "unpin": {
+      if (!userId) {
+        return NextResponse.json(
+          { error: "Missing userId" },
+          { status: 400 }
+        );
+      }
+      await chatStore.unpinConversation(businessId, userId);
+      await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: "[ระบบ] ถอดหมุดแล้ว",
+        timestamp: Date.now(),
+      });
+      return NextResponse.json({ success: true });
     }
 
     default:

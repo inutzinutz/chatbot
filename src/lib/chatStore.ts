@@ -23,6 +23,9 @@ export interface ChatConversation {
   botEnabled: boolean;
   source: "line" | "web";
   createdAt: number;
+  pinned?: boolean;
+  pinnedAt?: number;
+  pinnedReason?: string;
 }
 
 export interface ChatMessage {
@@ -32,6 +35,17 @@ export interface ChatMessage {
   timestamp: number;
   pipelineLayer?: number;
   pipelineLayerName?: string;
+}
+
+export interface FollowUpResult {
+  needsFollowup: boolean;
+  reason: string;
+  suggestedMessage: string;
+  priority: "high" | "medium" | "low";
+  category: "unanswered" | "purchase_intent" | "support_pending" | "cold_lead" | "completed";
+  displayName: string;
+  lastMessageAt: number;
+  analyzedAt: number;
 }
 
 // ── Redis client singleton (reused across warm invocations) ──
@@ -279,6 +293,37 @@ class ChatStore {
     await redis.zrem(convsKey(businessId), userId);
   }
 
+  // ── Conversation Pinning ──
+
+  /** Pin a conversation (auto-disables bot) */
+  async pinConversation(
+    businessId: string,
+    userId: string,
+    reason: string
+  ): Promise<void> {
+    const ck = convKey(businessId, userId);
+    const conv = await getJSON<ChatConversation>(ck);
+    if (conv) {
+      conv.pinned = true;
+      conv.pinnedAt = Date.now();
+      conv.pinnedReason = reason;
+      conv.botEnabled = false; // Auto-disable bot when pinned
+      await setJSON(ck, conv);
+    }
+  }
+
+  /** Unpin a conversation (does NOT auto-enable bot) */
+  async unpinConversation(businessId: string, userId: string): Promise<void> {
+    const ck = convKey(businessId, userId);
+    const conv = await getJSON<ChatConversation>(ck);
+    if (conv) {
+      conv.pinned = false;
+      conv.pinnedAt = undefined;
+      conv.pinnedReason = undefined;
+      await setJSON(ck, conv);
+    }
+  }
+
   // ── Global Bot Toggle (per business) ──
   // Key: globalbot:{businessId} → "1" (enabled) or "0" (disabled)
 
@@ -291,6 +336,59 @@ class ChatStore {
   async isGlobalBotEnabled(businessId: string): Promise<boolean> {
     const val = await redis.get(`globalbot:${businessId}`);
     return val !== "0"; // Default: enabled (null or "1")
+  }
+
+  // ── Follow-up Agent ──
+  // Key: followup:{businessId}:{userId} → JSON<FollowUpResult>
+  // Key: followups:{businessId}          → Sorted set (score = analyzedAt)
+
+  async setFollowUp(
+    businessId: string,
+    userId: string,
+    data: FollowUpResult
+  ): Promise<void> {
+    const key = `followup:${businessId}:${userId}`;
+    await setJSON(key, data);
+    // Auto-expire after 7 days
+    await redis.expire(key, 60 * 60 * 24 * 7);
+    await redis.zadd(`followups:${businessId}`, data.analyzedAt, userId);
+  }
+
+  async getFollowUp(
+    businessId: string,
+    userId: string
+  ): Promise<FollowUpResult | null> {
+    return getJSON<FollowUpResult>(`followup:${businessId}:${userId}`);
+  }
+
+  async getAllFollowUps(businessId: string): Promise<(FollowUpResult & { userId: string })[]> {
+    const userIds = await redis.zrange(`followups:${businessId}`, 0, -1, "REV");
+    if (!userIds || userIds.length === 0) return [];
+
+    const pipeline = redis.pipeline();
+    for (const uid of userIds) {
+      pipeline.get(`followup:${businessId}:${uid}`);
+    }
+    const results = await pipeline.exec();
+    if (!results) return [];
+
+    const followups: (FollowUpResult & { userId: string })[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const [err, raw] = results[i];
+      if (err || !raw) continue;
+      try {
+        const data = JSON.parse(raw as string) as FollowUpResult;
+        if (data.needsFollowup) {
+          followups.push({ ...data, userId: userIds[i] });
+        }
+      } catch { /* skip */ }
+    }
+    return followups;
+  }
+
+  async clearFollowUp(businessId: string, userId: string): Promise<void> {
+    await redis.del(`followup:${businessId}:${userId}`);
+    await redis.zrem(`followups:${businessId}`, userId);
   }
 }
 

@@ -295,12 +295,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
       if (lineUserId) {
         profile = await fetchLineProfile(lineUserId, accessToken);
       }
-      await chatStore.getOrCreateConversation(businessId, lineUserId, {
+      const conv = await chatStore.getOrCreateConversation(businessId, lineUserId, {
         displayName: profile?.displayName,
         pictureUrl: profile?.pictureUrl,
         statusMessage: profile?.statusMessage,
         source: "line",
       });
+
+      // ── Detect returning user (2hr+ gap) for auto-pin ──
+      const isReturningUser =
+        conv.lastMessage !== "" &&
+        Date.now() - conv.lastMessageAt > 2 * 60 * 60 * 1000;
+      const previousLastMessageAt = conv.lastMessageAt;
+      diag.isReturningUser = isReturningUser;
 
       // ── Store customer message ──
       await chatStore.addMessage(businessId, lineUserId, {
@@ -340,6 +347,46 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
+
+      // ── Auto-pin: returning user (2hr+ gap) + deep fallback (L12+) ──
+      if (isReturningUser && pipelineTrace.finalLayer >= 12) {
+        const gapHours = Math.round(
+          (Date.now() - previousLastMessageAt) / (1000 * 60 * 60)
+        );
+        await chatStore.pinConversation(
+          businessId,
+          lineUserId,
+          `ข้อความไม่ต่อเนื่อง (L${pipelineTrace.finalLayer}, gap: ${gapHours}h)`
+        );
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "admin",
+          content: `[ระบบ] ปักหมุดอัตโนมัติ — ข้อความไม่ต่อเนื่อง (gap: ${gapHours}h, L${pipelineTrace.finalLayer}) รอแอดมินตอบ`,
+          timestamp: Date.now(),
+        });
+        // Send brief acknowledgment to customer
+        try {
+          await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              replyToken,
+              messages: [
+                {
+                  type: "text",
+                  text: "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ",
+                },
+              ],
+            }),
+          });
+        } catch { /* reply token may expire */ }
+        diag.autoPinned = true;
+        diag.skippedReason = "auto_pinned_discontinuous";
+        results.push(diag);
+        continue;
+      }
 
       let replyText = "";
 
