@@ -769,11 +769,11 @@ function LineSection({
           description="Display a rich menu at the bottom of the chat"
         />
         {line.richMenuEnabled && (
-          <Field label="Rich Menu ID" hint="Created via LINE Messaging API">
+          <Field label="Rich Menu ID" hint="Enter existing ID from LINE Developers Console, then click Save">
             <TextInput
               value={line.richMenuId}
               onChange={(v) => updateLine({ richMenuId: v })}
-              placeholder="richmenu-xxxxxxxx"
+              placeholder="richmenu-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               mono
             />
           </Field>
@@ -797,15 +797,63 @@ function ChannelDetail({
   channel,
   onChange,
   onBack,
+  businessId,
 }: {
   channel: ChannelInfo;
   onChange: (ch: ChannelInfo) => void;
   onBack: () => void;
+  businessId: string;
 }) {
   const meta = PLATFORM_META[channel.type];
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+
+    // For LINE channels — persist settings to server via API
+    if (channel.type === "LINE" && channel.line) {
+      try {
+        const payload = {
+          welcomeMessage: channel.common.welcomeMessage,
+          autoReply: channel.common.autoReply,
+          responseDelaySec: channel.common.responseDelaySec,
+          offlineMessage: channel.common.offlineMessage,
+          richMenuEnabled: channel.line.richMenuEnabled,
+          richMenuId: channel.line.richMenuId,
+          useReplyApi: channel.line.useReplyApi,
+          businessHours: channel.common.businessHours,
+        };
+        const res = await fetch(`/api/line/settings/${businessId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+          setSaveError(errData.error || `HTTP ${res.status}`);
+          setSaving(false);
+          return;
+        }
+
+        // If richMenuEnabled + richMenuId provided — link it via Rich Menu API
+        if (channel.line.richMenuEnabled && channel.line.richMenuId) {
+          await fetch(`/api/line/richmenu/${businessId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ richMenuId: channel.line.richMenuId }),
+          }).catch(() => { /* non-blocking */ });
+        }
+      } catch (err) {
+        setSaveError(String(err));
+        setSaving(false);
+        return;
+      }
+    }
+
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -858,18 +906,26 @@ function ChannelDetail({
               )}
               {channel.enabled ? "Active" : "Disabled"}
             </button>
+            {saveError && (
+              <span className="text-xs text-red-500 max-w-[180px] truncate" title={saveError}>
+                {saveError}
+              </span>
+            )}
             <button
               type="button"
               onClick={handleSave}
+              disabled={saving}
               className={cn(
                 "flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg transition-all",
                 saved
                   ? "bg-green-500 text-white"
+                  : saving
+                  ? "bg-indigo-400 text-white cursor-wait"
                   : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
               )}
             >
               {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-              {saved ? "Saved!" : "Save"}
+              {saved ? "Saved!" : saving ? "Saving..." : "Save"}
             </button>
           </div>
         </div>
@@ -1071,6 +1127,7 @@ export default function ChannelsPage({ businessId }: { businessId: string }) {
         channel={ch}
         onChange={(updated) => updateChannel(editingIndex, updated)}
         onBack={() => setEditingIndex(null)}
+        businessId={businessId}
       />
     );
   }

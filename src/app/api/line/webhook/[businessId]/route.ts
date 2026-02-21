@@ -5,7 +5,7 @@ import {
   buildSystemPrompt,
   type ChatMessage,
 } from "@/lib/pipeline";
-import { chatStore } from "@/lib/chatStore";
+import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -63,6 +63,58 @@ async function verifySignature(
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(body));
   const digest = btoa(String.fromCharCode(...new Uint8Array(sig)));
   return digest === signature;
+}
+
+// ── Push message to LINE user ──
+
+async function pushToLine(
+  userId: string,
+  text: string,
+  accessToken: string
+): Promise<void> {
+  const trimmed = text.length > 5000 ? text.slice(0, 4997) + "..." : text;
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      to: userId,
+      messages: [{ type: "text", text: trimmed }],
+    }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    console.error(`[LINE webhook/path] Push API failed: ${res.status} — ${errorBody}`);
+  }
+}
+
+// ── Check if current time is within business hours ──
+
+function isWithinBusinessHours(bh: LineChannelSettings["businessHours"]): boolean {
+  if (!bh.enabled) return true;
+
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: bh.timezone,
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const weekday = parts.find((p) => p.type === "weekday")?.value || "";
+  const hourPart = parts.find((p) => p.type === "hour")?.value || "0";
+  const minPart = parts.find((p) => p.type === "minute")?.value || "0";
+  const currentMinutes = parseInt(hourPart) * 60 + parseInt(minPart);
+
+  const day = bh.schedule.find((s) => s.day === weekday);
+  if (!day || !day.active) return false;
+
+  const [oh, om] = day.open.split(":").map(Number);
+  const [ch, cm] = day.close.split(":").map(Number);
+  return currentMinutes >= (oh * 60 + om) && currentMinutes < (ch * 60 + cm);
 }
 
 // ── Strip markdown for LINE plain-text ──
@@ -260,6 +312,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
   // Get business config for pipeline
   const biz = getBusinessConfig(businessId);
 
+  // Load LINE settings from Redis
+  const lineSettings = await chatStore.getLineSettings(businessId);
+
   // Process each event
   const results: Record<string, unknown>[] = [];
 
@@ -269,6 +324,39 @@ export async function POST(req: NextRequest, context: RouteContext) {
       msgType: event.message?.type,
       hasReplyToken: !!event.replyToken,
     };
+
+    // ── Handle LINE "follow" event ──
+    if (event.type === "follow") {
+      const followUserId = event.source?.userId || "";
+      diag.userId = followUserId;
+      if (followUserId && lineSettings?.welcomeMessage) {
+        try {
+          const profile = await fetchLineProfile(followUserId, accessToken);
+          await chatStore.getOrCreateConversation(businessId, followUserId, {
+            displayName: profile?.displayName,
+            pictureUrl: profile?.pictureUrl,
+            statusMessage: profile?.statusMessage,
+            source: "line",
+          });
+          const welcomeText = stripMarkdown(lineSettings.welcomeMessage);
+          await pushToLine(followUserId, welcomeText, accessToken);
+          await chatStore.addMessage(businessId, followUserId, {
+            role: "bot",
+            content: welcomeText,
+            timestamp: Date.now(),
+            pipelineLayer: 0,
+            pipelineLayerName: "Welcome Message",
+          });
+          diag.sentWelcome = true;
+        } catch (err) {
+          diag.welcomeError = String(err);
+        }
+      } else {
+        diag.skipped = "follow_no_welcome_msg";
+      }
+      results.push(diag);
+      continue;
+    }
 
     // Only handle text messages
     if (event.type !== "message" || event.message?.type !== "text") {
@@ -316,11 +404,33 @@ export async function POST(req: NextRequest, context: RouteContext) {
         timestamp: Date.now(),
       });
 
+      // ── Check business hours ──
+      const withinHours = lineSettings?.businessHours
+        ? isWithinBusinessHours(lineSettings.businessHours)
+        : true;
+      diag.withinBusinessHours = withinHours;
+
+      if (!withinHours && lineSettings?.offlineMessage) {
+        try {
+          await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
+          diag.sentOfflineMessage = true;
+        } catch { /* non-critical */ }
+        diag.skippedReason = "outside_business_hours";
+        results.push(diag);
+        continue;
+      }
+
       // ── Check global bot toggle (entire business) ──
       const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
       diag.globalBotEnabled = globalBotEnabled;
 
       if (!globalBotEnabled) {
+        if (lineSettings?.offlineMessage) {
+          try {
+            await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
+            diag.sentOfflineMessage = true;
+          } catch { /* non-critical */ }
+        }
         diag.skippedReason = "global_bot_disabled";
         results.push(diag);
         continue;
@@ -331,7 +441,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       diag.botEnabled = botEnabled;
 
       if (!botEnabled) {
-        // Bot disabled — admin will reply manually. Don't auto-reply.
         diag.skippedReason = "bot_disabled";
         results.push(diag);
         continue;
@@ -479,6 +588,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       replyText = stripMarkdown(replyText);
       diag.replyLength = replyText.length;
       diag.replyPreview = replyText.slice(0, 80);
+
+      // ── Response Delay (if configured) ──
+      const delaySec = lineSettings?.responseDelaySec ?? 0;
+      if (delaySec > 0) {
+        diag.responseDelaySec = delaySec;
+        await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
+      }
 
       // ── Store bot reply message ──
       await chatStore.addMessage(businessId, lineUserId, {

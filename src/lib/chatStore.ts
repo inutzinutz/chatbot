@@ -10,6 +10,25 @@ import Redis from "ioredis";
 
 // ── Types ──
 
+/**
+ * LINE channel runtime settings — persisted in Redis so the webhook
+ * can read them without relying on browser localStorage.
+ */
+export interface LineChannelSettings {
+  welcomeMessage: string;       // sent on LINE "follow" event
+  autoReply: boolean;           // global auto-reply flag (mirrors Redis globalbot but settable via UI)
+  responseDelaySec: number;     // seconds to wait before replying (0 = instant)
+  offlineMessage: string;       // sent to customer when bot is disabled
+  richMenuEnabled: boolean;     // whether a rich menu should be linked
+  richMenuId: string;           // LINE rich menu ID (richmenu-xxx)
+  useReplyApi: boolean;         // currently always true; reserved for future Push API switch
+  businessHours: {
+    enabled: boolean;
+    timezone: string;
+    schedule: { day: string; open: string; close: string; active: boolean }[];
+  };
+}
+
 export interface ChatConversation {
   userId: string;
   businessId: string;
@@ -389,6 +408,18 @@ class ChatStore {
   async clearFollowUp(businessId: string, userId: string): Promise<void> {
     await redis.del(`followup:${businessId}:${userId}`);
     await redis.zrem(`followups:${businessId}`, userId);
+  }
+
+  // ── LINE Channel Settings (persisted per business) ──
+  // Key: linesettings:{businessId} → JSON<LineChannelSettings>
+  // Stored server-side so the webhook can read them at runtime.
+
+  async getLineSettings(businessId: string): Promise<LineChannelSettings | null> {
+    return getJSON<LineChannelSettings>(`linesettings:${businessId}`);
+  }
+
+  async setLineSettings(businessId: string, settings: LineChannelSettings): Promise<void> {
+    await setJSON(`linesettings:${businessId}`, settings);
   }
 }
 
