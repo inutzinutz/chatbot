@@ -11,16 +11,11 @@ export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
 
 /* ------------------------------------------------------------------ */
-/*  LINE Webhook — shared endpoint for all businesses                  */
-/*  Usage: POST /api/line/webhook?businessId=evlifethailand            */
+/*  LINE Webhook — path-based routing (no query params)                */
+/*  Usage: POST /api/line/webhook/evlifethailand                       */
 /*                                                                     */
-/*  Env vars (per business):                                           */
-/*    EVLIFETHAILAND_LINE_CHANNEL_SECRET                               */
-/*    EVLIFETHAILAND_LINE_CHANNEL_ACCESS_TOKEN                         */
-/*    DJI13STORE_LINE_CHANNEL_SECRET                                   */
-/*    DJI13STORE_LINE_CHANNEL_ACCESS_TOKEN                             */
-/*  Or fallback:                                                       */
-/*    LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN                  */
+/*  This eliminates query-param issues that some LINE OA configs may   */
+/*  have.  The businessId is embedded directly in the URL path.        */
 /* ------------------------------------------------------------------ */
 
 // ── Env helpers ──
@@ -50,7 +45,7 @@ function getLineAccessToken(businessId: string): string {
   );
 }
 
-// ── HMAC-SHA256 signature verification (Web Crypto for Edge) ──
+// ── HMAC-SHA256 signature verification ──
 
 async function verifySignature(
   body: string,
@@ -70,48 +65,20 @@ async function verifySignature(
   return digest === signature;
 }
 
-// ── Reply to LINE via Reply API ──
-
-async function replyToLine(
-  replyToken: string,
-  text: string,
-  accessToken: string
-): Promise<void> {
-  // LINE text message max is 5000 chars
-  const trimmed = text.length > 5000 ? text.slice(0, 4997) + "..." : text;
-
-  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      replyToken,
-      messages: [{ type: "text", text: trimmed }],
-    }),
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => "");
-    console.error(`[LINE webhook] Reply API failed: ${res.status} ${res.statusText} — ${errorBody}`);
-  }
-}
-
 // ── Strip markdown for LINE plain-text ──
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "$1") // bold -> plain
-    .replace(/__(.+?)__/g, "$1") // bold alt
-    .replace(/\*(.+?)\*/g, "$1") // italic
-    .replace(/_(.+?)_/g, "$1") // italic alt
-    .replace(/~~(.+?)~~/g, "$1") // strikethrough
-    .replace(/`(.+?)`/g, "$1") // inline code
-    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // links -> text only
-    .replace(/^#{1,6}\s+/gm, "") // headings
-    .replace(/^[-*]\s+/gm, "• ") // list items -> bullet
-    .replace(/^\d+\.\s+/gm, "") // numbered list (keep number via text)
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*]\s+/gm, "• ")
+    .replace(/^\d+\.\s+/gm, "")
     .trim();
 }
 
@@ -125,7 +92,7 @@ async function callGptFallback(
     { role: "user", content: userMessage },
   ];
 
-  // Priority 1: Anthropic Claude (non-streaming for LINE)
+  // Priority 1: Anthropic Claude
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (anthropicKey) {
     try {
@@ -155,7 +122,7 @@ async function callGptFallback(
     }
   }
 
-  // Priority 2: OpenAI (non-streaming for LINE)
+  // Priority 2: OpenAI
   const openaiKey = process.env.OPENAI_API_KEY;
   if (openaiKey) {
     try {
@@ -232,13 +199,20 @@ interface LineEvent {
   };
 }
 
-// ── Main handler ──
+// ── Route params type ──
 
-export async function POST(req: NextRequest) {
-  const businessId = req.nextUrl.searchParams.get("businessId") || "";
+type RouteContext = {
+  params: Promise<{ businessId: string }>;
+};
+
+// ── POST handler ──
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  const { businessId } = await context.params;
+
   if (!businessId) {
     return NextResponse.json(
-      { error: "Missing businessId query parameter" },
+      { error: "Missing businessId in path" },
       { status: 400 }
     );
   }
@@ -248,8 +222,8 @@ export async function POST(req: NextRequest) {
 
   if (!secret || !accessToken) {
     console.error(
-      `[LINE webhook] Missing credentials for business: ${businessId}. ` +
-        `Expected env: ${envKey(businessId, "LINE_CHANNEL_SECRET")} and ${envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN")}`
+      `[LINE webhook/${businessId}] Missing credentials. ` +
+        `Expected: ${envKey(businessId, "LINE_CHANNEL_SECRET")} and ${envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN")}`
     );
     return NextResponse.json(
       { error: "LINE credentials not configured for this business" },
@@ -264,7 +238,7 @@ export async function POST(req: NextRequest) {
   // Verify signature
   const valid = await verifySignature(rawBody, signature, secret);
   if (!valid) {
-    console.warn(`[LINE webhook] Invalid signature for business: ${businessId}`);
+    console.warn(`[LINE webhook/${businessId}] Invalid signature`);
     return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
   }
 
@@ -279,14 +253,14 @@ export async function POST(req: NextRequest) {
 
   // Webhook verification request (empty events)
   if (events.length === 0) {
-    console.log(JSON.stringify({ step: "verify", businessId, events: 0 }));
+    console.log(JSON.stringify({ step: "verify", businessId, events: 0, route: "path-based" }));
     return NextResponse.json({ status: "ok" });
   }
 
   // Get business config for pipeline
   const biz = getBusinessConfig(businessId);
 
-  // Process each event — collect all diagnostics into one log
+  // Process each event
   const results: Record<string, unknown>[] = [];
 
   for (const event of events) {
@@ -316,7 +290,7 @@ export async function POST(req: NextRequest) {
     diag.userId = lineUserId;
 
     try {
-      // ── Fetch user profile & ensure conversation exists ──
+      // ── Fetch user profile (first time) & ensure conversation exists ──
       let profile: { displayName: string; pictureUrl?: string; statusMessage?: string } | null = null;
       if (lineUserId) {
         profile = await fetchLineProfile(lineUserId, accessToken);
@@ -335,11 +309,12 @@ export async function POST(req: NextRequest) {
         timestamp: Date.now(),
       });
 
-      // ── Check if bot is enabled ──
+      // ── Check if bot is enabled for this conversation ──
       const botEnabled = chatStore.isBotEnabled(businessId, lineUserId);
       diag.botEnabled = botEnabled;
 
       if (!botEnabled) {
+        // Bot disabled — admin will reply manually. Don't auto-reply.
         diag.skippedReason = "bot_disabled";
         results.push(diag);
         continue;
@@ -376,7 +351,7 @@ export async function POST(req: NextRequest) {
       diag.replyLength = replyText.length;
       diag.replyPreview = replyText.slice(0, 80);
 
-      // ── Store bot reply ──
+      // ── Store bot reply message ──
       chatStore.addMessage(businessId, lineUserId, {
         role: "bot",
         content: replyText,
@@ -394,7 +369,15 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           replyToken,
-          messages: [{ type: "text", text: replyText.length > 5000 ? replyText.slice(0, 4997) + "..." : replyText }],
+          messages: [
+            {
+              type: "text",
+              text:
+                replyText.length > 5000
+                  ? replyText.slice(0, 4997) + "..."
+                  : replyText,
+            },
+          ],
         }),
       });
 
@@ -418,7 +401,12 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
               replyToken: event.replyToken,
-              messages: [{ type: "text", text: "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ" }],
+              messages: [
+                {
+                  type: "text",
+                  text: "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ",
+                },
+              ],
             }),
           });
         }
@@ -430,30 +418,38 @@ export async function POST(req: NextRequest) {
     results.push(diag);
   }
 
-  // Single consolidated log with all diagnostics
-  console.log(JSON.stringify({ webhook: businessId, events: events.length, results }));
+  // Single consolidated log
+  console.log(
+    JSON.stringify({
+      webhook: businessId,
+      route: "path-based",
+      events: events.length,
+      results,
+    })
+  );
 
   return NextResponse.json({ status: "ok" });
 }
 
 // ── GET handler for health check + debug ──
 
-export async function GET(req: NextRequest) {
-  const businessId = req.nextUrl.searchParams.get("businessId") || "none";
+export async function GET(req: NextRequest, context: RouteContext) {
+  const { businessId } = await context.params;
   const debug = req.nextUrl.searchParams.get("debug") === "1";
 
   if (!debug) {
     return NextResponse.json({
       status: "ok",
-      endpoint: "LINE Webhook",
+      endpoint: "LINE Webhook (path-based)",
       businessId,
-      usage: "POST /api/line/webhook?businessId=evlifethailand",
+      usage: `POST /api/line/webhook/${businessId}`,
     });
   }
 
   // Debug mode: test pipeline + LINE API token
   const diagnostics: Record<string, unknown> = {
     businessId,
+    route: "path-based",
     timestamp: new Date().toISOString(),
   };
 
@@ -472,7 +468,11 @@ export async function GET(req: NextRequest) {
     diagnostics.productsCount = biz.products.length;
 
     const testMessages: ChatMessage[] = [{ role: "user", content: "สวัสดี" }];
-    const { content, trace } = generatePipelineResponseWithTrace("สวัสดี", testMessages, biz);
+    const { content, trace } = generatePipelineResponseWithTrace(
+      "สวัสดี",
+      testMessages,
+      biz
+    );
     diagnostics.pipelineResult = {
       layer: trace.finalLayer,
       layerName: trace.finalLayerName,
@@ -483,7 +483,7 @@ export async function GET(req: NextRequest) {
     diagnostics.pipelineError = String(err);
   }
 
-  // 3. Test LINE API token validity (with 8s timeout)
+  // 3. Test LINE API token validity
   if (accessToken) {
     try {
       const controller = new AbortController();
@@ -528,7 +528,48 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 5. Test Push API — send a message to a specific user
+  // 5. Test webhook endpoint via LINE API
+  if (accessToken) {
+    try {
+      const testRes = await fetch(
+        "https://api.line.me/v2/bot/channel/webhook/endpoint",
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      diagnostics.webhookEndpointInfo = {
+        status: testRes.status,
+        data: await testRes.json().catch(() => null),
+      };
+    } catch (err) {
+      diagnostics.webhookEndpointError = String(err);
+    }
+  }
+
+  // 6. Test webhook delivery via LINE API
+  if (accessToken) {
+    try {
+      const testRes = await fetch(
+        "https://api.line.me/v2/bot/channel/webhook/test",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({}),
+        }
+      );
+      diagnostics.webhookTest = {
+        status: testRes.status,
+        data: await testRes.json().catch(() => null),
+      };
+    } catch (err) {
+      diagnostics.webhookTestError = String(err);
+    }
+  }
+
+  // 7. Push test
   const pushTo = req.nextUrl.searchParams.get("push");
   if (pushTo && accessToken) {
     try {
@@ -540,7 +581,12 @@ export async function GET(req: NextRequest) {
         },
         body: JSON.stringify({
           to: pushTo,
-          messages: [{ type: "text", text: "ทดสอบจาก EV Life Thailand Bot - ระบบทำงานปกติครับ!" }],
+          messages: [
+            {
+              type: "text",
+              text: `[Path-based webhook] ทดสอบจาก EV Life Thailand Bot - ระบบทำงานปกติครับ! Route: /api/line/webhook/${businessId}`,
+            },
+          ],
         }),
       });
       const pushBody = await pushRes.text().catch(() => "");
@@ -551,6 +597,34 @@ export async function GET(req: NextRequest) {
       };
     } catch (err) {
       diagnostics.pushError = String(err);
+    }
+  }
+
+  // 8. Set webhook URL via API (if requested)
+  const setWebhook = req.nextUrl.searchParams.get("setWebhook");
+  if (setWebhook && accessToken) {
+    try {
+      const setRes = await fetch(
+        "https://api.line.me/v2/bot/channel/webhook/endpoint",
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            endpoint: setWebhook,
+          }),
+        }
+      );
+      diagnostics.setWebhook = {
+        status: setRes.status,
+        ok: setRes.ok,
+        data: await setRes.json().catch(() => null),
+        newUrl: setWebhook,
+      };
+    } catch (err) {
+      diagnostics.setWebhookError = String(err);
     }
   }
 

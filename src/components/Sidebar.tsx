@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import {
   MessageCircle,
+  MessagesSquare,
   BarChart3,
   Package,
   FileText,
@@ -28,6 +29,7 @@ import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 export type PageId =
   | "chat"
+  | "live-chat"
   | "analytics"
   | "products"
   | "sale-scripts"
@@ -52,7 +54,8 @@ const NAV_SECTIONS = [
   {
     title: "Main",
     items: [
-      { id: "chat" as PageId, label: "Chats", icon: MessageCircle },
+      { id: "live-chat" as PageId, label: "Live Chat", icon: MessagesSquare },
+      { id: "chat" as PageId, label: "AI Chat", icon: MessageCircle },
       { id: "analytics" as PageId, label: "Analytics", icon: BarChart3 },
     ],
   },

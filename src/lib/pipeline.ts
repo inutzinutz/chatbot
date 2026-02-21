@@ -280,6 +280,195 @@ function buildContextualResponse(
 }
 
 // ─────────────────────────────────────────────────────────────
+// PRODUCT DETAIL HELPERS
+// ─────────────────────────────────────────────────────────────
+
+const GENERIC_PRODUCT_TAGS = new Set([
+  "มอเตอร์ไซค์ไฟฟ้า", "em", "จดทะเบียนได้",
+  "แบตเตอรี่", "lifepo4", "12v", "auxiliary battery", "รถยนต์ไฟฟ้า",
+  "อุปกรณ์เสริม", "บริการ", "เปลี่ยนแบตเตอรี่",
+]);
+
+/**
+ * Find a specific product mentioned by name in the user message.
+ * Sorts by extracted model name length (descending) to match more
+ * specific names first — e.g. "Legend Pro" before "Legend".
+ */
+function findSpecificProductInCategory(
+  messageLower: string,
+  products: Product[],
+  brandPrefix: string
+): Product | null {
+  const prefixLower = brandPrefix.toLowerCase();
+
+  // Build candidates with their extracted model names
+  const candidates = products.map((p) => {
+    const nameLower = p.name.toLowerCase();
+    const modelName = nameLower.startsWith(prefixLower)
+      ? nameLower.slice(prefixLower.length).trim()
+      : nameLower;
+    return { product: p, modelName };
+  });
+
+  // Sort by model name length descending (match longest/most specific first)
+  candidates.sort((a, b) => b.modelName.length - a.modelName.length);
+
+  // Pass 1: Full product name match
+  for (const c of candidates) {
+    if (messageLower.includes(c.product.name.toLowerCase())) return c.product;
+  }
+
+  // Pass 2: Model name match (e.g. "legend pro", "qarez", "owen long range")
+  for (const c of candidates) {
+    if (c.modelName.length > 2 && messageLower.includes(c.modelName)) {
+      return c.product;
+    }
+  }
+
+  // Pass 3: Tag-based match for partial names (e.g. "Owen" → tag "Owen" on EM Owen Long Range)
+  for (const c of candidates) {
+    for (const tag of c.product.tags) {
+      const tl = tag.toLowerCase();
+      if (tl.length > 2 && !GENERIC_PRODUCT_TAGS.has(tl) && messageLower.includes(tl)) {
+        return c.product;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build a detailed response for a specific EM motorcycle model.
+ */
+function buildDetailedEMResponse(p: Product, biz: BusinessConfig): string {
+  const lines: string[] = [];
+  const descLines = p.description.split("\n");
+  const thaiDesc = descLines[0];
+  const specLine = descLines.find((l) => l.includes("Motor:"));
+
+  lines.push(`**${p.name}** ครับ`);
+  lines.push("");
+  lines.push(`💰 ราคา: **${p.price.toLocaleString()} บาท**`);
+  lines.push("");
+
+  // Specs
+  lines.push("📋 สเปค:");
+  if (specLine) {
+    const specs = specLine.split("|").map((s) => s.trim()).filter(Boolean);
+    for (const spec of specs) {
+      lines.push(`  • ${spec}`);
+    }
+  }
+  lines.push("");
+
+  // Features from description
+  lines.push("✨ จุดเด่น:");
+  if (thaiDesc.includes("กะทัดรัด") || thaiDesc.includes("ในเมือง")) {
+    lines.push("  • ขนาดกะทัดรัด คล่องตัว เหมาะใช้งานในเมือง");
+  }
+  if (thaiDesc.includes("คลาสสิก") || thaiDesc.includes("อิตาเลียน")) {
+    lines.push("  • ดีไซน์คลาสสิก สไตล์อิตาเลียน สวยโดดเด่น");
+  }
+  if (thaiDesc.includes("มาตรฐาน")) {
+    lines.push("  • รุ่นมาตรฐาน เหมาะทั้งในเมืองและทางไกล");
+  }
+  if (thaiDesc.includes("สมรรถนะสูง") || thaiDesc.includes("อัปเกรด")) {
+    lines.push("  • รุ่นอัปเกรด สมรรถนะสูง กำลังมอเตอร์เหนือชั้น");
+  }
+  if (thaiDesc.includes("ระยะทางไกล")) {
+    lines.push("  • เน้นระยะทางไกล วิ่งได้ไกลที่สุดในซีรีส์");
+  }
+  if (thaiDesc.includes("สปอร์ต") || thaiDesc.includes("ทันสมัย")) {
+    lines.push("  • สไตล์สปอร์ต ดีไซน์ทันสมัย พลังแรง");
+  }
+  if (thaiDesc.includes("จดทะเบียน") || p.tags.includes("จดทะเบียนได้")) {
+    lines.push("  • จดทะเบียนได้ตามกฎหมาย พร้อม พ.ร.บ.");
+  }
+  lines.push("");
+
+  // Warranty
+  lines.push("🔧 รับประกัน:");
+  lines.push("  • มอเตอร์: 3 ปี");
+  lines.push("  • แบตเตอรี่: 3 ปี / 30,000 กม.");
+  lines.push("  • เฟรม: 5 ปี");
+  lines.push("");
+  lines.push("📞 สนใจสั่งซื้อหรือนัดทดลองขับได้เลยครับ");
+  lines.push(biz.orderChannelsText);
+
+  return lines.join("\n");
+}
+
+/**
+ * Build a catalog list of all EM motorcycles with specs (for generic EM inquiry).
+ */
+function buildEMCatalogResponse(products: Product[], biz: BusinessConfig): string {
+  const lines: string[] = [];
+  lines.push("EV Life Thailand เป็นตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM อย่างเป็นทางการครับ");
+  lines.push("");
+  lines.push("รุ่นที่มีจำหน่าย:");
+
+  // Sort by price ascending
+  const sorted = [...products].sort((a, b) => a.price - b.price);
+
+  for (const p of sorted) {
+    const specLine = p.description.split("\n").find((l) => l.includes("Motor:"));
+    let specs = "";
+    if (specLine) {
+      const motor = specLine.match(/Motor:\s*(\d+W)/)?.[1] || "";
+      const range = specLine.match(/Range:\s*(\d+)\s*km/)?.[1] || "";
+      const speed = specLine.match(/Top Speed:\s*(\d+)\s*km\/h/)?.[1] || "";
+      if (motor && range && speed) {
+        specs = ` (มอเตอร์ ${motor}, วิ่ง ${range} กม./ชาร์จ, เร็วสุด ${speed} กม./ชม.)`;
+      }
+    }
+    lines.push(`• **${p.name}** — ${p.price.toLocaleString()} บาท${specs}`);
+  }
+
+  lines.push("");
+  lines.push("ทุกรุ่นจดทะเบียนได้ตามกฎหมายครับ");
+  lines.push("สนใจรุ่นไหนครับ? พิมพ์ชื่อรุ่นได้เลย ผมจะให้รายละเอียดเต็มครับ!");
+
+  return lines.join("\n");
+}
+
+/**
+ * Build a detailed response for a specific product (generic — batteries, accessories, etc.)
+ */
+function buildDetailedProductResponseGeneric(p: Product, biz: BusinessConfig): string {
+  const lines: string[] = [];
+  lines.push(`**${p.name}** ครับ`);
+  lines.push("");
+  lines.push(`💰 ราคา: ${p.price > 0 ? `**${p.price.toLocaleString()} บาท**` : "**ฟรี** (รวมในค่าสินค้า)"}`);
+  lines.push("");
+
+  // Description — split into readable lines
+  const descLines = p.description.split("\n");
+  lines.push("📋 รายละเอียด:");
+  for (const line of descLines) {
+    if (line.trim()) lines.push(`  ${line.trim()}`);
+  }
+  lines.push("");
+
+  lines.push(`📂 หมวดหมู่: ${p.category}`);
+
+  if (p.status === "discontinue") {
+    lines.push("⚠️ สินค้ายกเลิกจำหน่ายแล้ว");
+    if (p.recommendedAlternative) {
+      lines.push(`➡️ แนะนำ: **${p.recommendedAlternative}**`);
+    }
+  } else {
+    lines.push("✅ พร้อมจำหน่าย");
+  }
+  lines.push("");
+
+  lines.push("📞 สนใจสั่งซื้อหรือสอบถามเพิ่มเติมได้เลยครับ");
+  lines.push(biz.orderChannelsText);
+
+  return lines.join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────
 // SYSTEM PROMPT — business-aware (for GPT fallback)
 // ─────────────────────────────────────────────────────────────
 
@@ -528,9 +717,26 @@ export function generatePipelineResponseWithTrace(
       case "on_site_service":
       case "warranty_info":
       case "battery_symptom":
-      case "em_motorcycle":
         intentResponse = intent.responseTemplate;
         break;
+      case "em_motorcycle": {
+        const EM_CATEGORY = "มอเตอร์ไซค์ไฟฟ้า EM";
+        const emProducts = biz.getActiveProducts().filter(
+          (p) => p.category === EM_CATEGORY
+        );
+        if (emProducts.length === 0) {
+          intentResponse = intent.responseTemplate;
+          break;
+        }
+        const specificModel = findSpecificProductInCategory(lower, emProducts, "EM ");
+        if (specificModel) {
+          intentResponse = buildDetailedEMResponse(specificModel, biz);
+          intentDetails.matchedProducts = [specificModel.name];
+        } else {
+          intentResponse = buildEMCatalogResponse(emProducts, biz);
+        }
+        break;
+      }
       case "admin_escalation":
         intentResponse = biz.buildAdminEscalationResponse();
         break;
@@ -665,18 +871,38 @@ export function generatePipelineResponseWithTrace(
   t = now();
   const matchedProducts = biz.searchProducts(userMessage);
   if (matchedProducts.length > 0) {
+    addStep(10, "Product Search", "ค้นหาสินค้า", "matched", t, {
+      matchedProducts: matchedProducts.slice(0, 3).map((p) => p.name),
+      productsCount: matchedProducts.length,
+    });
+    finalLayer = 10;
+    finalLayerName = "Product Search";
+
+    // Single product match → show detailed view
+    if (matchedProducts.length <= 2) {
+      const p = matchedProducts[0];
+      const isEM = p.category === "มอเตอร์ไซค์ไฟฟ้า EM";
+      const detail = isEM
+        ? buildDetailedEMResponse(p, biz)
+        : buildDetailedProductResponseGeneric(p, biz);
+      if (matchedProducts.length === 2) {
+        const p2 = matchedProducts[1];
+        const isEM2 = p2.category === "มอเตอร์ไซค์ไฟฟ้า EM";
+        const detail2 = isEM2
+          ? buildDetailedEMResponse(p2, biz)
+          : buildDetailedProductResponseGeneric(p2, biz);
+        return finishTrace(`${detail}\n\n---\n\n${detail2}`);
+      }
+      return finishTrace(detail);
+    }
+
+    // Multiple matches → show brief cards
     const top = matchedProducts.slice(0, 3);
     const cards = top.map(buildProductCard).join("\n\n---\n\n");
     const more =
       matchedProducts.length > 3
         ? `\n\n_...และอีก ${matchedProducts.length - 3} รายการ_`
         : "";
-    addStep(10, "Product Search", "ค้นหาสินค้า", "matched", t, {
-      matchedProducts: top.map((p) => p.name),
-      productsCount: matchedProducts.length,
-    });
-    finalLayer = 10;
-    finalLayerName = "Product Search";
     return finishTrace(
       `พบสินค้าที่เกี่ยวข้อง ${matchedProducts.length} รายการครับ\n\n${cards}${more}\n\nสนใจรุ่นไหนเพิ่มเติมไหมครับ?`
     );

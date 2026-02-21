@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Sidebar, { type PageId } from "@/components/Sidebar";
 import ChatWindow from "@/components/ChatWindow";
+import LiveChatPage from "@/components/LiveChatPage";
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
 import AIInspector from "@/components/AIInspector";
 import AITesting from "@/components/AITesting";
@@ -124,11 +125,13 @@ function SettingsPage({ businessId }: { businessId: string }) {
 }
 
 export default function Home() {
-  const [activePage, setActivePage] = useState<PageId>("chat");
+  const [activePage, setActivePage] = useState<PageId>("live-chat");
   const [businessId, setBusinessId] = useState(DEFAULT_BUSINESS_ID);
 
   const renderContent = () => {
     switch (activePage) {
+      case "live-chat":
+        return <LiveChatPage key={businessId} businessId={businessId} />;
       case "chat":
         return (
           <div className="flex-1 flex flex-col bg-gray-50/50 p-4">
