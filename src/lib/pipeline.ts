@@ -811,6 +811,7 @@ export function generatePipelineResponseWithTrace(
       case "warranty_info":
       case "battery_symptom":
       case "support_inquiry":
+      case "em_motorcycle_service":
         intentResponse = intent.responseTemplate;
         break;
       case "discontinued_model":
