@@ -377,12 +377,16 @@ export async function GET(req: NextRequest) {
     diagnostics.pipelineError = String(err);
   }
 
-  // 3. Test LINE API token validity
+  // 3. Test LINE API token validity (with 5s timeout)
   if (accessToken) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       const res = await fetch("https://api.line.me/v2/bot/info", {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const body = await res.text();
       diagnostics.lineApiTest = {
         status: res.status,
