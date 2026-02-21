@@ -851,28 +851,41 @@ export function generatePipelineResponseWithTrace(
         break;
       }
       case "recommendation": {
-        // Detect context — prefer motorcycles if message hints at riding/vehicle
-        const MOTO_REC_SIGNALS = ["คัน", "มอไซ", "มอเตอร์ไซ", "motorcycle", "ขับ", "ขี่", "em ", " em", "legend", "milan", "owen", "หมู่บ้าน", "ในเมือง", "ทางไกล", "แนะนำคัน", "รุ่นไหน", "คันไหน"];
-        const BATTERY_REC_SIGNALS = ["แบต", "battery", "byd", "tesla", "mg", "neta", "volvo", "bmw", "mercedes", "ora", "รถยนต์", "รถ ev"];
-        const lowerRec = lower;
-        const wantsMoto = MOTO_REC_SIGNALS.some((s) => lowerRec.includes(s));
-        const wantsBattery = BATTERY_REC_SIGNALS.some((s) => lowerRec.includes(s));
+        // Detect context — what category does the customer want?
+        const MOTO_REC_SIGNALS = [
+          "คัน", "คันไหน", "มอไซ", "มอเตอร์ไซ", "motorcycle",
+          "ขับ", "ขี่", "em ", " em", "legend", "milan", "owen",
+          "หมู่บ้าน", "ในเมือง", "ทางไกล", "แนะนำคัน",
+        ];
+        const BATTERY_REC_SIGNALS = [
+          "แบต", "battery", "byd", "tesla", "mg ", " mg",
+          "neta", "volvo", "bmw", "mercedes", "ora", "รถยนต์ไฟฟ้า", "รถ ev",
+          "12v", "lifepo4",
+        ];
+        const wantsMoto = MOTO_REC_SIGNALS.some((s) => lower.includes(s));
+        const wantsBattery = BATTERY_REC_SIGNALS.some((s) => lower.includes(s));
 
-        let recProducts = biz.getActiveProducts();
         if (wantsMoto && !wantsBattery) {
-          recProducts = recProducts.filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+          // Show EM motorcycle catalog with specs
+          const emProducts = biz.getActiveProducts().filter(
+            (p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM"
+          );
+          intentResponse = emProducts.length > 0
+            ? buildEMCatalogResponse(emProducts, biz)
+            : intent.responseTemplate;
         } else if (wantsBattery && !wantsMoto) {
-          recProducts = recProducts.filter((p) => p.category === "แบตเตอรี่ EV");
+          // Show top battery products
+          const batProducts = biz.getActiveProducts()
+            .filter((p) => p.category === "แบตเตอรี่ EV")
+            .slice(0, 4);
+          const list = batProducts
+            .map((p) => `🏆 **${p.name}** — ${p.price.toLocaleString()} บาท`)
+            .join("\n");
+          intentResponse = `แบตเตอรี่ LiFePO4 สำหรับรถ EV ยอดนิยมครับ\n\n${list}\n\nบอกรุ่นรถที่ใช้อยู่ผมจะแจ้งรุ่นที่เข้ากันได้เลยครับ!`;
+        } else {
+          // No clear context — ask what they're looking for
+          intentResponse = `ยินดีช่วยแนะนำครับ! EV Life Thailand มีสินค้าสองกลุ่มหลักครับ\n\n**1. มอเตอร์ไซค์ไฟฟ้า EM** (39,900 – 87,200 บาท)\n- EM Legend G.2 — 39,900 บาท (คุ้มค่าที่สุด)\n- EM Legend Pro — 49,900 บาท\n- EM Milano — 59,900 บาท\n- EM Owen Long Range — 87,200 บาท\n\n**2. แบตเตอรี่ 12V LiFePO4** สำหรับรถยนต์ไฟฟ้า (4,900 – 7,500 บาท)\n- รองรับ BYD, Tesla, MG, Neta, Volvo, BMW, Mercedes ฯลฯ\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
         }
-
-        const popular = recProducts.slice(0, 4);
-        const list = popular
-          .map(
-            (p) =>
-              `🏆 **${p.name}** — ${p.price.toLocaleString()} บาท`
-          )
-          .join("\n");
-        intentResponse = `สินค้าแนะนำยอดนิยมครับ\n\n${list}\n\n${intent.responseTemplate}`;
         break;
       }
       case "product_inquiry": {
