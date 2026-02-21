@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { products as initialProducts, type Product, getCategories } from "@/lib/products";
+import { type Product } from "@/lib/products";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -243,8 +244,9 @@ function DeleteConfirm({ name, onConfirm, onCancel }: { name: string; onConfirm:
   );
 }
 
-export default function ProductsPage() {
-  const [items, setItems] = useLocalStorage<Product[]>("dji13_products", [...initialProducts]);
+export default function ProductsPage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
+  const [items, setItems] = useLocalStorage<Product[]>(`${businessId}_products`, [...config.products]);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");

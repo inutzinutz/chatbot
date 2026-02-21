@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Zap,
 } from "lucide-react";
+import { DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 function SettingsPage() {
   return (
@@ -123,6 +124,7 @@ function SettingsPage() {
 
 export default function Home() {
   const [activePage, setActivePage] = useState<PageId>("chat");
+  const [businessId, setBusinessId] = useState(DEFAULT_BUSINESS_ID);
 
   const renderContent = () => {
     switch (activePage) {
@@ -130,24 +132,24 @@ export default function Home() {
         return (
           <div className="flex-1 flex flex-col bg-gray-50/50 p-4">
             <div className="flex-1 overflow-hidden rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/30 bg-white">
-              <ChatWindow />
+              <ChatWindow key={businessId} businessId={businessId} />
             </div>
           </div>
         );
       case "analytics":
-        return <AnalyticsDashboard />;
+        return <AnalyticsDashboard key={businessId} businessId={businessId} />;
       case "channels":
-        return <ChannelsPage />;
+        return <ChannelsPage key={businessId} businessId={businessId} />;
       case "settings":
         return <SettingsPage />;
       case "products":
-        return <ProductsPage />;
+        return <ProductsPage key={businessId} businessId={businessId} />;
       case "sale-scripts":
-        return <SaleScriptsPage />;
+        return <SaleScriptsPage key={businessId} businessId={businessId} />;
       case "knowledge":
-        return <KnowledgePage />;
+        return <KnowledgePage key={businessId} businessId={businessId} />;
       case "intents":
-        return <IntentsPage />;
+        return <IntentsPage key={businessId} businessId={businessId} />;
       case "promotions":
         return <PromotionsPage />;
       case "quick-replies":
@@ -157,7 +159,7 @@ export default function Home() {
       case "ai-inspector":
         return <AIInspector />;
       case "ai-testing":
-        return <AITesting />;
+        return <AITesting key={businessId} businessId={businessId} />;
       default:
         return null;
     }
@@ -165,7 +167,7 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh w-dvw overflow-hidden bg-gray-100">
-      <Sidebar activePage={activePage} onNavigate={setActivePage} />
+      <Sidebar activePage={activePage} onNavigate={setActivePage} businessId={businessId} onBusinessChange={setBusinessId} />
       {renderContent()}
     </div>
   );

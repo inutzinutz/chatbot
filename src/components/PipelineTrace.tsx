@@ -294,25 +294,40 @@ function StepRow({ step, isLast, isFinal }: { step: PipelineStep; isLast: boolea
 
 function ModeBadge({ mode }: { mode: PipelineTrace["mode"] }) {
   const config: Record<string, { label: string; color: string; bg: string }> = {
-    claude_stream: {
-      label: "Claude Stream",
+    pipeline: {
+      label: "Pipeline",
+      color: "text-blue-700",
+      bg: "bg-blue-50 border-blue-200",
+    },
+    pipeline_then_claude: {
+      label: "Pipeline → Claude",
       color: "text-violet-700",
       bg: "bg-violet-50 border-violet-200",
+    },
+    pipeline_then_openai: {
+      label: "Pipeline → OpenAI",
+      color: "text-emerald-700",
+      bg: "bg-emerald-50 border-emerald-200",
     },
     claude_fallback: {
       label: "Claude → Fallback",
       color: "text-fuchsia-700",
       bg: "bg-fuchsia-50 border-fuchsia-200",
     },
-    openai_stream: {
-      label: "OpenAI Stream",
-      color: "text-emerald-700",
-      bg: "bg-emerald-50 border-emerald-200",
-    },
     openai_fallback: {
       label: "OpenAI → Fallback",
       color: "text-amber-700",
       bg: "bg-amber-50 border-amber-200",
+    },
+    claude_stream: {
+      label: "Claude Stream",
+      color: "text-violet-700",
+      bg: "bg-violet-50 border-violet-200",
+    },
+    openai_stream: {
+      label: "OpenAI Stream",
+      color: "text-emerald-700",
+      bg: "bg-emerald-50 border-emerald-200",
     },
     fallback: {
       label: "Smart Fallback",

@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { knowledgeDocs as initialDocs, type KnowledgeDoc } from "@/lib/knowledgeDocs";
+import { type KnowledgeDoc } from "@/lib/knowledgeDocs";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -114,8 +115,9 @@ function DocModal({
   );
 }
 
-export default function KnowledgePage() {
-  const [items, setItems] = useLocalStorage<KnowledgeDoc[]>("dji13_knowledge", [...initialDocs]);
+export default function KnowledgePage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
+  const [items, setItems] = useLocalStorage<KnowledgeDoc[]>(`${businessId}_knowledge`, [...config.knowledgeDocs]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<KnowledgeDoc | null | "new">(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);

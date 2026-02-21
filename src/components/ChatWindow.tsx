@@ -15,19 +15,44 @@ interface Message {
   trace?: PipelineTrace;
 }
 
-const WELCOME_MESSAGE: Message = {
-  id: "welcome",
-  role: "assistant",
-  content:
-    "สวัสดีครับ! 👋 ผมคือผู้ช่วย AI ของ **DJI 13 STORE** ตัวแทนจำหน่าย DJI อย่างเป็นทางการ\n\nผมช่วยอะไรได้บ้างครับ?\n- 🚁 แนะนำโดรน DJI\n- 📷 กล้องแอคชั่น Osmo\n- 🎥 กิมบอลกันสั่น\n- 💰 ราคาและโปรโมชั่น\n- 🚚 การจัดส่ง/รับประกัน\n\nลองเลือกหัวข้อด้านล่าง หรือพิมพ์ชื่อสินค้าได้เลยครับ!",
+import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+
+const WELCOME_MESSAGES: Record<string, Message> = {
+  dji13store: {
+    id: "welcome",
+    role: "assistant",
+    content:
+      "สวัสดีครับ! ผมคือผู้ช่วย AI ของ **DJI 13 STORE** ตัวแทนจำหน่าย DJI อย่างเป็นทางการ\n\nผมช่วยอะไรได้บ้างครับ?\n- โดรน DJI ทุกรุ่น\n- กล้องแอคชั่น Osmo\n- กิมบอลกันสั่น\n- ราคาและโปรโมชั่น\n- การจัดส่ง/รับประกัน\n\nลองเลือกหัวข้อด้านล่าง หรือพิมพ์ชื่อสินค้าได้เลยครับ!",
+  },
+  evlifethailand: {
+    id: "welcome",
+    role: "assistant",
+    content:
+      "สวัสดีครับ! ยินดีต้อนรับสู่ **EV Life Thailand** ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM\n\nผมช่วยอะไรได้บ้างครับ?\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- สอบถามราคา/โปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลยครับ!",
+  },
 };
+
+function getWelcomeMessage(businessId: string): Message {
+  return WELCOME_MESSAGES[businessId] || WELCOME_MESSAGES[DEFAULT_BUSINESS_ID];
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default function ChatWindow() {
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
+interface ChatWindowProps {
+  businessId?: string;
+}
+
+export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWindowProps) {
+  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage(businessId)]);
+
+  // Reset messages when businessId changes
+  useEffect(() => {
+    setMessages([getWelcomeMessage(businessId)]);
+    setShowQuickReplies(true);
+    setIsLoading(false);
+  }, [businessId]);
   const [isLoading, setIsLoading] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -69,6 +94,7 @@ export default function ChatWindow() {
           messages: [...messages, userMessage]
             .filter((m) => m.id !== "welcome")
             .map((m) => ({ role: m.role, content: m.content })),
+          businessId,
         }),
       });
 
@@ -210,7 +236,7 @@ export default function ChatWindow() {
   };
 
   const resetChat = () => {
-    setMessages([WELCOME_MESSAGE]);
+    setMessages([getWelcomeMessage(businessId)]);
     setShowQuickReplies(true);
     setIsLoading(false);
     trackChatEvent({ type: "session_start" });
@@ -226,7 +252,7 @@ export default function ChatWindow() {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-gray-900">
-              DJI 13 STORE Assistant
+              {(businessUnitList.find((b) => b.id === businessId)?.name || "DJI 13 STORE") + " Assistant"}
             </h2>
             <div className="flex items-center gap-1.5">
               <div className="h-2 w-2 rounded-full bg-green-500" />

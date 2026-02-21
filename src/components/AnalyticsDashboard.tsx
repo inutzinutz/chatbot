@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { analyticsData } from "@/lib/analytics";
 import { getChatEvents, computeAnalytics, clearChatEvents } from "@/lib/chatEvents";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import type { ComputedAnalytics } from "@/lib/chatEvents";
 import {
   Users,
@@ -211,8 +211,9 @@ const MODE_LABELS: Record<string, string> = {
   fallback: "Smart Fallback",
 };
 
-export default function AnalyticsDashboard() {
-  const d = analyticsData;
+export default function AnalyticsDashboard({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
+  const d = config.analyticsData;
   const usagePct = Math.round((d.package.currentUsage / d.package.monthlyLimit) * 100);
 
   const [liveStats, setLiveStats] = useState<ComputedAnalytics | null>(null);

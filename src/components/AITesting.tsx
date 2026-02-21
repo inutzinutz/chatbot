@@ -51,11 +51,17 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+import { DEFAULT_BUSINESS_ID, businessUnitList } from "@/lib/businessUnits";
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default function AITesting() {
+interface AITestingProps {
+  businessId?: string;
+}
+
+export default function AITesting({ businessId = DEFAULT_BUSINESS_ID }: AITestingProps) {
   const [messages, setMessages] = useState<TestMessage[]>([]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -66,6 +72,60 @@ export default function AITesting() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Reset when business changes
+  useEffect(() => {
+    setMessages([]);
+    setExpandedMessage(null);
+    setInput("");
+  }, [businessId]);
+
+  const bizName = businessUnitList.find((b) => b.id === businessId)?.name || "AI";
+  const isEvLife = businessId === "evlifethailand";
+
+  const testScenarios = isEvLife
+    ? [
+        { label: "Battery price", msg: "แบตเตอรี่ BYD Atto 3 ราคาเท่าไหร่" },
+        { label: "EM motorcycle", msg: "มอเตอร์ไซค์ไฟฟ้า EM มีรุ่นไหนบ้าง" },
+        { label: "On-site service", msg: "มีบริการเปลี่ยนถึงบ้านไหม" },
+        { label: "Warranty info", msg: "แบตเตอรี่ประกันกี่ปี" },
+        { label: "Battery symptom", msg: "รถ EV เปิดไม่ติด แบตหมด" },
+        { label: "Promotion check", msg: "มีโปรโมชั่นอะไรบ้าง" },
+        { label: "Follow-up test", msg: "แล้วราคาเท่าไหร่" },
+        { label: "Admin escalation", msg: "ขอคุยกับแอดมินหน่อย" },
+        { label: "Registration", msg: "มอเตอร์ไซค์ EM จดทะเบียนได้ไหม" },
+        { label: "Stock check", msg: "แบตเตอรี่ Tesla Model 3 มีของไหม" },
+      ]
+    : [
+        { label: "Price inquiry", msg: "DJI Avata 2 ราคาเท่าไหร่" },
+        { label: "Promotion check", msg: "มีโปรโมชั่นอะไรบ้าง" },
+        { label: "Shipping query", msg: "ส่งต่างประเทศได้ไหม" },
+        { label: "Warranty info", msg: "warranty for DJI Mini 4 Pro?" },
+        { label: "Follow-up test", msg: "แล้วราคาเท่าไหร่" },
+        { label: "Product specs", msg: "DJI Mini 4 Pro สเปคเป็นยังไง" },
+        { label: "Compare products", msg: "Mini 4 Pro กับ Air 3S อะไรดีกว่า" },
+        { label: "Admin escalation", msg: "ขอคุยกับแอดมินหน่อย" },
+        { label: "Discontinued product", msg: "DJI Mini 3 Pro มีไหม" },
+        { label: "Stock check", msg: "Avata 2 มีของไหม" },
+      ];
+
+  const sampleMsg = isEvLife ? "แบตเตอรี่ BYD Atto 3 ราคา" : "DJI Mini 4 Pro ราคาเท่าไหร่";
+
+  const placeholderQuestions = isEvLife
+    ? [
+        "แบตเตอรี่ Tesla Model Y ราคา",
+        "มอเตอร์ไซค์ EM Milano สเปค",
+        "บริการ On-site ครอบคลุมที่ไหนบ้าง",
+        "EM Legend Pro กับ Enzo ต่างกันยังไง",
+        "แบตเตอรี่ 12V เสื่อม อาการเป็นยังไง",
+      ]
+    : [
+        "DJI Mini 4 Pro ราคา",
+        "มีโปรโมชั่นอะไรบ้าง",
+        "warranty info",
+        "ส่งต่างประเทศได้ไหม",
+        "ลงทะเบียนโดรน",
+      ];
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -110,7 +170,7 @@ export default function AITesting() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, businessId }),
       });
 
       const contentType = response.headers.get("content-type") || "";
@@ -261,7 +321,7 @@ export default function AITesting() {
             </button>
           )}
           <button
-            onClick={() => setInput("DJI Mini 4 Pro ราคาเท่าไหร่")}
+            onClick={() => setInput(sampleMsg)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
           >
             <Sparkles className="h-3 w-3" />
@@ -290,13 +350,7 @@ export default function AITesting() {
                     View the full Pipeline Trace with all 15 layers.
                   </p>
                   <div className="flex flex-wrap gap-1.5 justify-center pt-2">
-                    {[
-                      "DJI Mini 4 Pro ราคา",
-                      "มีโปรโมชั่นอะไรบ้าง",
-                      "warranty info",
-                      "ส่งต่างประเทศได้ไหม",
-                      "ลงทะเบียนโดรน",
-                    ].map((q) => (
+                    {placeholderQuestions.map((q) => (
                       <button
                         key={q}
                         onClick={() => setInput(q)}
@@ -463,9 +517,9 @@ export default function AITesting() {
             </h3>
             <div className="space-y-2">
               {[
-                { name: "Claude Sonnet", desc: "Priority 1 — streaming with Anthropic API", color: "text-violet-600 bg-violet-50 border-violet-200" },
-                { name: "GPT-4o-mini", desc: "Priority 2 — streaming with OpenAI API", color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
-                { name: "Smart Fallback", desc: "Priority 3 — 15-layer local pipeline, no API key needed", color: "text-indigo-600 bg-indigo-50 border-indigo-200" },
+                { name: "Pipeline First", desc: "15-layer intent/FAQ/knowledge pipeline runs first", color: "text-blue-600 bg-blue-50 border-blue-200" },
+                { name: "Claude Sonnet", desc: "GPT fallback — only if pipeline can't resolve", color: "text-violet-600 bg-violet-50 border-violet-200" },
+                { name: "GPT-4o-mini", desc: "GPT fallback — if no Anthropic key", color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
               ].map((mode) => (
                 <div key={mode.name} className={cn("rounded-lg p-3 border", mode.color)}>
                   <span className="text-xs font-semibold">{mode.name}</span>
@@ -480,18 +534,7 @@ export default function AITesting() {
               Test Scenarios
             </h3>
             <div className="space-y-1.5">
-              {[
-                { label: "Price inquiry", msg: "DJI Avata 2 ราคาเท่าไหร่" },
-                { label: "Promotion check", msg: "มีโปรโมชั่นอะไรบ้าง" },
-                { label: "Shipping query", msg: "ส่งต่างประเทศได้ไหม" },
-                { label: "Warranty info", msg: "warranty for DJI Mini 4 Pro?" },
-                { label: "Follow-up test", msg: "แล้วราคาเท่าไหร่" },
-                { label: "Product specs", msg: "DJI Mini 4 Pro สเปคเป็นยังไง" },
-                { label: "Compare products", msg: "Mini 4 Pro กับ Air 3S อะไรดีกว่า" },
-                { label: "Admin escalation", msg: "ขอคุยกับแอดมินหน่อย" },
-                { label: "Discontinued product", msg: "DJI Mini 3 Pro มีไหม" },
-                { label: "Stock check", msg: "Avata 2 มีของไหม" },
-              ].map((scenario) => (
+              {testScenarios.map((scenario) => (
                 <button
                   key={scenario.label}
                   onClick={() => setInput(scenario.msg)}

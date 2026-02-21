@@ -19,8 +19,12 @@ import {
   Truck,
   ShieldCheck,
   CheckSquare,
+  ChevronsUpDown,
+  Battery,
+  Plane,
 } from "lucide-react";
 import { useState } from "react";
+import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 export type PageId =
   | "chat"
@@ -40,6 +44,8 @@ export type PageId =
 interface SidebarProps {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
+  businessId: string;
+  onBusinessChange: (id: string) => void;
 }
 
 const NAV_SECTIONS = [
@@ -78,8 +84,13 @@ const NAV_SECTIONS = [
   },
 ];
 
-export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
+export default function Sidebar({ activePage, onNavigate, businessId, onBusinessChange }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [bizMenuOpen, setBizMenuOpen] = useState(false);
+
+  const currentBiz = businessUnitList.find((b) => b.id === businessId) ?? businessUnitList[0];
+
+  const BizIcon = currentBiz.icon === "battery" ? Battery : Plane;
 
   return (
     <nav
@@ -88,17 +99,74 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
         collapsed ? "w-[68px]" : "w-[240px]"
       )}
     >
-      {/* Brand Header */}
-      <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-100">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gray-800 to-black text-white shadow-md">
-          <Bot className="h-4.5 w-4.5" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-bold text-gray-900 truncate">
-              DJI 13 STORE
-            </h1>
-            <p className="text-[10px] text-gray-400 truncate">AI Chatbot</p>
+      {/* Business Switcher Header */}
+      <div className="relative border-b border-gray-100">
+        <button
+          onClick={() => !collapsed && setBizMenuOpen(!bizMenuOpen)}
+          className={cn(
+            "flex items-center gap-3 w-full px-4 py-5 text-left transition-colors",
+            !collapsed && "hover:bg-gray-50 cursor-pointer"
+          )}
+        >
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-md"
+            style={{
+              background: `linear-gradient(135deg, ${currentBiz.primaryColor}, ${currentBiz.primaryColor}dd)`,
+            }}
+          >
+            <BizIcon className="h-4.5 w-4.5" />
+          </div>
+          {!collapsed && (
+            <>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-sm font-bold text-gray-900 truncate">
+                  {currentBiz.name}
+                </h1>
+                <p className="text-[10px] text-gray-400 truncate">AI Chatbot</p>
+              </div>
+              <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+            </>
+          )}
+        </button>
+
+        {/* Dropdown */}
+        {bizMenuOpen && !collapsed && (
+          <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
+            {businessUnitList.map((biz) => {
+              const Icon = biz.icon === "battery" ? Battery : Plane;
+              const isSelected = biz.id === businessId;
+              return (
+                <button
+                  key={biz.id}
+                  onClick={() => {
+                    onBusinessChange(biz.id);
+                    setBizMenuOpen(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 text-left transition-colors",
+                    isSelected
+                      ? "bg-gray-50"
+                      : "hover:bg-gray-50"
+                  )}
+                >
+                  <div
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white"
+                    style={{
+                      background: `linear-gradient(135deg, ${biz.primaryColor}, ${biz.primaryColor}dd)`,
+                    }}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-gray-900 truncate">{biz.name}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{biz.description}</p>
+                  </div>
+                  {isSelected && (
+                    <div className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

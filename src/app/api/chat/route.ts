@@ -1,48 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  products,
-  searchProducts,
-  getCategories,
-  getActiveProducts,
-  getCheapestProducts,
-  getProductsByCategory,
-  getProductById,
-  type Product,
-} from "@/lib/products";
-import { faqData } from "@/lib/faq";
-import { saleScripts, matchSaleScript } from "@/lib/saleScripts";
-import { knowledgeDocs, matchKnowledgeDoc } from "@/lib/knowledgeDocs";
-import {
-  intents,
-  matchAdminEscalation,
-  matchStockInquiry,
-  matchVatRefund,
-  matchContactIntent,
-  matchDiscontinued,
-  buildAdminEscalationResponse,
-  buildStockCheckResponse,
-  buildVatRefundResponse,
-  buildContactChannelsResponse,
-  buildDiscontinuedResponse,
-  type Intent,
-} from "@/lib/intentPolicies";
+import { type Product } from "@/lib/products";
+import { getBusinessConfig, DEFAULT_BUSINESS_ID, type BusinessConfig } from "@/lib/businessUnits";
 import type { PipelineStep, PipelineTrace } from "@/lib/inspector";
 
 // ─────────────────────────────────────────────────────────────
-// INTENT ENGINE — Multi-signal scoring
+// INTENT ENGINE — Multi-signal scoring (business-aware)
 // ─────────────────────────────────────────────────────────────
 
 interface IntentScore {
-  intent: Intent;
+  intent: BusinessConfig["intents"][number];
   score: number;
   matchedTriggers: string[];
 }
 
-function scoreIntents(message: string): IntentScore[] {
+function scoreIntents(message: string, biz: BusinessConfig): IntentScore[] {
   const lower = message.toLowerCase();
   const scores: IntentScore[] = [];
 
-  for (const intent of intents) {
+  for (const intent of biz.intents) {
     if (!intent.active || intent.triggers.length === 0) continue;
     let score = 0;
     const matchedTriggers: string[] = [];
@@ -63,8 +38,8 @@ function scoreIntents(message: string): IntentScore[] {
   return scores.sort((a, b) => b.score - a.score);
 }
 
-function classifyIntent(message: string, threshold = 2): IntentScore | null {
-  const scores = scoreIntents(message);
+function classifyIntent(message: string, biz: BusinessConfig, threshold = 2): IntentScore | null {
+  const scores = scoreIntents(message, biz);
   return scores.length > 0 && scores[0].score >= threshold ? scores[0] : null;
 }
 
@@ -80,23 +55,15 @@ interface ChatMessage {
 // ─────────────────────────────────────────────────────────────
 
 interface ConversationContext {
-  /** Products mentioned in recent messages */
   recentProducts: Product[];
-  /** The primary product being discussed */
   activeProduct: Product | null;
-  /** Recent topic: price, shipping, warranty, comparison, etc. */
   recentTopic: string | null;
-  /** Is the current message likely a follow-up? */
   isFollowUp: boolean;
-  /** Recent user messages (for pattern matching) */
   recentUserMessages: string[];
-  /** Context summary for trace */
   summary: string;
 }
 
-/** Keywords that indicate a follow-up / continuation */
 const FOLLOW_UP_PATTERNS = [
-  // Thai follow-ups
   "รุ่นนี้", "ตัวนี้", "อันนี้", "เครื่องนี้", "สินค้านี้",
   "ราคาเท่าไหร่", "ราคาเท่าไร", "กี่บาท",
   "มีสีอะไร", "สีอะไรบ้าง",
@@ -109,17 +76,14 @@ const FOLLOW_UP_PATTERNS = [
   "เปรียบเทียบ", "ต่างกันยังไง", "อะไรดีกว่า",
   "มีของไหม", "มีสต็อกไหม", "พร้อมส่งไหม",
   "แถมอะไร", "ได้อะไรบ้าง", "มาพร้อมอะไร",
-  // English follow-ups
   "this one", "how much", "what color", "any discount",
   "specs", "details", "warranty", "shipping",
   "compare", "difference", "better",
   "i want it", "order", "buy this",
-  // Short affirmations that need context
   "เอา", "ได้", "ครับ", "ค่ะ", "โอเค", "ok", "yes",
   "แล้วก็", "แล้ว", "อีกอย่าง",
 ];
 
-/** Topic keywords that indicate WHAT the user wants to know (used with context) */
 const TOPIC_PATTERNS: { keys: string[]; topic: string }[] = [
   { keys: ["ราคา", "กี่บาท", "เท่าไหร่", "เท่าไร", "price", "how much", "cost"], topic: "price" },
   { keys: ["ประกัน", "warranty", "เคลม", "care refresh", "service plus"], topic: "warranty" },
@@ -135,14 +99,14 @@ const TOPIC_PATTERNS: { keys: string[]; topic: string }[] = [
 
 function extractConversationContext(
   messages: ChatMessage[],
-  currentMessage: string
+  currentMessage: string,
+  biz: BusinessConfig
 ): ConversationContext {
   const recentProducts: Product[] = [];
   const recentUserMessages: string[] = [];
   let activeProduct: Product | null = null;
   let recentTopic: string | null = null;
 
-  // Scan recent messages (last 8) for product mentions
   const recentMsgs = messages.slice(-8);
   for (const msg of recentMsgs) {
     if (msg.role === "user") {
@@ -151,14 +115,7 @@ function extractConversationContext(
 
     const text = msg.content.toLowerCase();
 
-    // Find products mentioned in this message
-    for (const product of products) {
-      const nameTokens = product.name.toLowerCase().split(/\s+/);
-      // Check if significant part of product name is mentioned
-      const significantTokens = nameTokens.filter(
-        (t) => t.length > 2 && !["dji", "combo", "the", "and", "pro"].includes(t)
-      );
-
+    for (const product of biz.products) {
       const nameMatch = product.name.toLowerCase();
       if (text.includes(nameMatch)) {
         if (!recentProducts.find((p) => p.id === product.id)) {
@@ -167,7 +124,6 @@ function extractConversationContext(
         continue;
       }
 
-      // Also check for partial name matches (e.g. "Mini 4 Pro", "Avata 2", "Action 5")
       for (const tag of product.tags) {
         if (tag.length > 3 && text.includes(tag.toLowerCase())) {
           if (!recentProducts.find((p) => p.id === product.id)) {
@@ -178,13 +134,12 @@ function extractConversationContext(
       }
     }
 
-    // Also check if assistant response contained product info (like a product card)
     if (msg.role === "assistant") {
       const productNameMatch = msg.content.match(/\*\*(.+?)\*\*/g);
       if (productNameMatch) {
         for (const match of productNameMatch) {
           const name = match.replace(/\*\*/g, "");
-          const found = products.find(
+          const found = biz.products.find(
             (p) => p.name.toLowerCase() === name.toLowerCase()
           );
           if (found && !recentProducts.find((rp) => rp.id === found.id)) {
@@ -195,21 +150,17 @@ function extractConversationContext(
     }
   }
 
-  // The most recently mentioned product is the "active" one
   if (recentProducts.length > 0) {
     activeProduct = recentProducts[recentProducts.length - 1];
   }
 
-  // Detect if current message is a follow-up
   const currentLower = currentMessage.toLowerCase();
   const isFollowUp =
     messages.length > 1 &&
     FOLLOW_UP_PATTERNS.some((p) => currentLower.includes(p)) &&
-    // Short messages are more likely follow-ups
     (currentMessage.length < 40 ||
       FOLLOW_UP_PATTERNS.some((p) => currentLower.includes(p)));
 
-  // Detect the current topic
   for (const { keys, topic } of TOPIC_PATTERNS) {
     if (keys.some((k) => currentLower.includes(k))) {
       recentTopic = topic;
@@ -217,7 +168,6 @@ function extractConversationContext(
     }
   }
 
-  // Build summary for trace
   const parts: string[] = [];
   if (activeProduct) parts.push(`Active product: ${activeProduct.name}`);
   if (recentProducts.length > 1)
@@ -237,7 +187,7 @@ function extractConversationContext(
 }
 
 // ─────────────────────────────────────────────────────────────
-// CONTEXTUAL RESPONSE BUILDER — answer follow-ups about a product
+// CONTEXTUAL RESPONSE BUILDER
 // ─────────────────────────────────────────────────────────────
 
 function buildProductCard(p: Product): string {
@@ -246,12 +196,13 @@ function buildProductCard(p: Product): string {
   const alt = p.recommendedAlternative
     ? `\n➡️ แนะนำรุ่นใหม่: **${p.recommendedAlternative}**`
     : "";
-  return `🛍️ **${p.name}**\n💰 **${p.price.toLocaleString()} บาท** | 📂 ${p.category}\n${badge}${alt}\n📝 ${p.description.split("\n")[0]}`;
+  return `**${p.name}**\n💰 **${p.price.toLocaleString()} บาท** | ${p.category}\n${badge}${alt}\n${p.description.split("\n")[0]}`;
 }
 
 function buildContextualResponse(
   ctx: ConversationContext,
-  userMessage: string
+  userMessage: string,
+  biz: BusinessConfig
 ): string | null {
   const p = ctx.activeProduct;
   if (!p) return null;
@@ -265,70 +216,66 @@ function buildContextualResponse(
         p.status === "discontinue"
           ? `\n\n⚠️ สินค้านี้ยกเลิกจำหน่ายแล้ว แนะนำ **${p.recommendedAlternative}** ครับ`
           : ""
-      }\n\nสนใจสอบถามเพิ่มเติมไหมครับ? 😊`;
+      }\n\nสนใจสอบถามเพิ่มเติมไหมครับ?`;
 
     case "warranty":
-      return `**${p.name}** มีประกันศูนย์ DJI 1 ปีครับ 🛡️\n\nสามารถซื้อ **DJI Care Refresh** เพิ่มเติมเพื่อความคุ้มครองที่มากขึ้น:\n- 1 Year Plan: ครอบคลุมอุบัติเหตุ 2 ครั้ง\n- 2 Year Plan: ครอบคลุมอุบัติเหตุ 3 ครั้ง\n\nสนใจดูรายละเอียด DJI Care Refresh เพิ่มไหมครับ? 😊`;
+      return `**${p.name}** — ข้อมูลการรับประกันครับ\n\nกรุณาสอบถามรายละเอียดการรับประกันเฉพาะสินค้านี้กับทีมงานครับ\n\nสนใจดูรายละเอียดเพิ่มไหมครับ?`;
 
     case "shipping":
-      return `การจัดส่ง **${p.name}** ครับ 🚚\n\n- จัดส่งผ่าน Kerry Express / Flash Express\n- ระยะเวลา 1-3 วันทำการ (กรุงเทพฯ และปริมณฑล)\n- ต่างจังหวัด 2-5 วันทำการ\n- **ส่งฟรี** ทุกออเดอร์ภายในประเทศ\n\nต้องการสั่งซื้อเลยไหมครับ? 😊`;
+      return `การจัดส่ง **${p.name}** ครับ\n\nกรุณาสอบถามรายละเอียดการจัดส่งกับทีมงานครับ\n\nต้องการสั่งซื้อเลยไหมครับ?`;
 
     case "specs":
-      return `รายละเอียด **${p.name}** ครับ 📋\n\n${p.description}\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n📂 หมวดหมู่: ${p.category}\n\nมีคำถามเพิ่มเติมไหมครับ? 😊`;
+      return `รายละเอียด **${p.name}** ครับ\n\n${p.description}\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n📂 หมวดหมู่: ${p.category}\n\nมีคำถามเพิ่มเติมไหมครับ?`;
 
     case "installment":
-      return `**${p.name}** ราคา **${p.price.toLocaleString()} บาท** ครับ 💳\n\nรองรับการผ่อนชำระ:\n- บัตรเครดิต 0% นาน 3-10 เดือน (ขึ้นอยู่กับธนาคาร)\n- ผ่อนผ่าน KTC, SCB, Krungsri, BBL, KBANK\n\nสนใจผ่อนผ่านธนาคารไหนครับ? 😊`;
+      return `**${p.name}** ราคา **${p.price.toLocaleString()} บาท** ครับ\n\nสอบถามเงื่อนไขการผ่อนชำระได้ที่ทีมงานครับ`;
 
     case "promotion":
-      return `โปรโมชั่นสำหรับ **${p.name}** ครับ 🎉\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสามารถสอบถามโปรโมชั่นล่าสุดได้ที่ LINE @dji13store ครับ เพราะโปรโมชั่นอาจมีการเปลี่ยนแปลงตามช่วงเวลา\n\nต้องการสอบถามเรื่องอื่นเพิ่มเติมไหมครับ? 😊`;
+      return `โปรโมชั่นสำหรับ **${p.name}** ครับ\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสอบถามโปรโมชั่นล่าสุดได้ที่ทีมงานครับ`;
 
     case "stock":
-      return `ผมขออนุญาตตรวจสอบสต็อก **${p.name}** กับทีมงานให้แน่ชัดก่อนนะครับ 📦\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ ระหว่างนี้ ให้ผมช่วยแนะนำข้อมูลส่วนอื่นก่อนไหมครับ?`;
+      return `ผมขออนุญาตตรวจสอบสต็อก **${p.name}** กับทีมงานให้แน่ชัดก่อนนะครับ\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ`;
 
     case "compare": {
-      // Try to find what they want to compare with
       if (ctx.recentProducts.length >= 2) {
         const [p1, p2] = ctx.recentProducts.slice(-2);
-        return `เปรียบเทียบ **${p1.name}** vs **${p2.name}** ครับ 📊\n\n` +
+        return `เปรียบเทียบ **${p1.name}** vs **${p2.name}** ครับ\n\n` +
           `| | **${p1.name}** | **${p2.name}** |\n` +
           `|---|---|---|\n` +
           `| ราคา | ${p1.price.toLocaleString()} บาท | ${p2.price.toLocaleString()} บาท |\n` +
           `| หมวดหมู่ | ${p1.category} | ${p2.category} |\n` +
           `| สถานะ | ${p1.status === "discontinue" ? "ยกเลิก" : "จำหน่าย"} | ${p2.status === "discontinue" ? "ยกเลิก" : "จำหน่าย"} |\n\n` +
-          `สนใจรุ่นไหนมากกว่าครับ? 😊`;
+          `สนใจรุ่นไหนมากกว่าครับ?`;
       }
-      return `สำหรับ **${p.name}** ราคา **${p.price.toLocaleString()} บาท** ครับ\n\nอยากเปรียบเทียบกับรุ่นไหนครับ? บอกชื่อรุ่นมาได้เลยครับ 😊`;
+      return `สำหรับ **${p.name}** ราคา **${p.price.toLocaleString()} บาท** ครับ\n\nอยากเปรียบเทียบกับรุ่นไหนครับ?`;
     }
 
     case "order":
-      return `ขอบคุณที่สนใจ **${p.name}** ครับ! 🎉\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nช่องทางสั่งซื้อครับ:\n- 💬 LINE: @dji13store (แนะนำ)\n- 📘 Facebook: DJI 13 Store\n- 📞 โทร: 065-694-6155\n\nทีมงานจะช่วยดำเนินการสั่งซื้อและแจ้งรายละเอียดการชำระเงินให้ครับ 😊`;
+      return `ขอบคุณที่สนใจ **${p.name}** ครับ!\n\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nช่องทางสั่งซื้อครับ:\n${biz.orderChannelsText}\n\nทีมงานจะช่วยดำเนินการสั่งซื้อและแจ้งรายละเอียดการชำระเงินให้ครับ`;
 
     default:
       break;
   }
 
-  // Generic follow-up about a product — show product details
   if (ctx.isFollowUp && p) {
-    // Short affirmation like "เอา", "ครับ", "ได้"
     const affirmations = ["เอา", "ได้", "ครับ", "ค่ะ", "โอเค", "ok", "yes", "ตกลง", "เอาเลย"];
     if (affirmations.some((a) => lower === a || lower.startsWith(a + " "))) {
-      return `ดีเลยครับ! 😊 สำหรับ **${p.name}** ราคา **${p.price.toLocaleString()} บาท**\n\nสามารถสั่งซื้อได้ผ่าน:\n- 💬 LINE: @dji13store\n- 📘 Facebook: DJI 13 Store\n- 📞 โทร: 065-694-6155\n\nหรือต้องการทราบข้อมูลเพิ่มเติมก่อนไหมครับ?`;
+      return `ดีเลยครับ! สำหรับ **${p.name}** ราคา **${p.price.toLocaleString()} บาท**\n\nสามารถสั่งซื้อได้ผ่าน:\n${biz.orderChannelsText}\n\nหรือต้องการทราบข้อมูลเพิ่มเติมก่อนไหมครับ?`;
     }
 
-    // Generic follow-up — give product summary
-    return `**${p.name}** ครับ 📋\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n📂 หมวดหมู่: ${p.category}\n${p.status === "discontinue" ? `⚠️ ยกเลิกจำหน่าย → แนะนำ **${p.recommendedAlternative}**` : "✅ พร้อมจำหน่าย"}\n\nต้องการทราบเรื่องอะไรเพิ่มเติมครับ? (ราคา, สเปค, ประกัน, การจัดส่ง) 😊`;
+    return `**${p.name}** ครับ\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n📂 หมวดหมู่: ${p.category}\n${p.status === "discontinue" ? `⚠️ ยกเลิกจำหน่าย → แนะนำ **${p.recommendedAlternative}**` : "✅ พร้อมจำหน่าย"}\n\nต้องการทราบเรื่องอะไรเพิ่มเติมครับ?`;
   }
 
   return null;
 }
 
 // ─────────────────────────────────────────────────────────────
-// SYSTEM PROMPT
+// SYSTEM PROMPT — business-aware
 // ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(): string {
-  const activeProducts = getActiveProducts();
-  const discontinuedProducts = products.filter(
+function buildSystemPrompt(biz: BusinessConfig): string {
+  const activeProducts = biz.getActiveProducts();
+  const discontinuedProducts = biz.products.filter(
     (p) => p.status === "discontinue"
   );
 
@@ -338,26 +285,30 @@ function buildSystemPrompt(): string {
   const productList = [
     "### Active Products:",
     ...activeProducts.map(formatProduct),
-    "",
-    "### Discontinued Products (แจ้งลูกค้าและแนะนำรุ่นทดแทนเสมอ):",
-    ...discontinuedProducts.map(formatProduct),
+    ...(discontinuedProducts.length > 0
+      ? [
+          "",
+          "### Discontinued Products (แจ้งลูกค้าและแนะนำรุ่นทดแทนเสมอ):",
+          ...discontinuedProducts.map(formatProduct),
+        ]
+      : []),
   ].join("\n");
 
-  const faqList = faqData
+  const faqList = biz.faqData
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
-  const saleScriptList = saleScripts
+  const saleScriptList = biz.saleScripts
     .map((s) => `- Triggers: ${s.triggers.join(", ")}\n  Reply: ${s.adminReply}`)
     .join("\n");
 
-  const knowledgeList = knowledgeDocs
+  const knowledgeList = biz.knowledgeDocs
     .map((d) => `[${d.title}]\n${d.content}`)
     .join("\n\n");
 
-  const categories = getCategories().join(", ");
+  const categories = biz.getCategories().join(", ");
 
-  const intentPolicyList = intents
+  const intentPolicyList = biz.intents
     .filter((i) => i.active)
     .sort((a, b) => a.number - b.number)
     .map(
@@ -369,8 +320,7 @@ function buildSystemPrompt(): string {
     )
     .join("\n\n");
 
-  return `คุณคือ "DJI 13 STORE Assistant" ผู้ช่วย AI ของร้าน DJI 13 STORE ตัวแทนจำหน่าย DJI อย่างเป็นทางการ บน DroidMind
-ตอบภาษาไทยเป็นหลัก ตอบภาษาอังกฤษได้ถ้าลูกค้าถามเป็นภาษาอังกฤษ
+  return `${biz.systemPromptIdentity}
 
 ## หมวดหมู่สินค้า: ${categories}
 
@@ -397,11 +347,11 @@ ${intentPolicyList}
 5. **ห้ามแต่งข้อมูลสินค้า** ที่ไม่มีในระบบ
 6. **ห้ามส่ง payment link** ทาง chat
 7. ราคาแสดงเป็นบาทเสมอ รูปแบบ: 12,650 บาท
-8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อ LINE @dji13store`;
+8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ`;
 }
 
 // ─────────────────────────────────────────────────────────────
-// FALLBACK PIPELINE — with conversation context & tracing
+// PIPELINE — with conversation context & tracing (business-aware)
 // ─────────────────────────────────────────────────────────────
 
 function now() {
@@ -413,9 +363,10 @@ interface TracedResult {
   trace: PipelineTrace;
 }
 
-function generateFallbackResponseWithTrace(
+function generatePipelineResponseWithTrace(
   userMessage: string,
-  allMessages: ChatMessage[]
+  allMessages: ChatMessage[],
+  biz: BusinessConfig
 ): TracedResult {
   const pipelineStart = now();
   const lower = userMessage.toLowerCase();
@@ -444,7 +395,7 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 0: Conversation Context Extraction ──
   let t = now();
-  const ctx = extractConversationContext(allMessages, userMessage);
+  const ctx = extractConversationContext(allMessages, userMessage, biz);
   addStep(0, "Context Extraction", "วิเคราะห์บริบทจากประวัติแชท", "checked", t, {
     intent: ctx.summary,
     matchedProducts: ctx.recentProducts.map((p) => p.name),
@@ -453,30 +404,29 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 1: Admin Escalation ──
   t = now();
-  if (matchAdminEscalation(userMessage)) {
+  if (biz.matchAdminEscalation(userMessage)) {
     addStep(1, "Admin Escalation", "ตรวจจับคำขอคุยกับแอดมิน/คนจริง", "matched", t, {
       matchedTriggers: ["admin escalation keywords"],
     });
     finalLayer = 1;
     finalLayerName = "Safety: Admin Escalation";
-    return finishTrace(buildAdminEscalationResponse());
+    return finishTrace(biz.buildAdminEscalationResponse());
   }
   addStep(1, "Admin Escalation", "ตรวจจับคำขอคุยกับแอดมิน/คนจริง", "skipped", t);
 
   // ── LAYER 2: VAT Refund ──
   t = now();
-  if (matchVatRefund(userMessage)) {
+  if (biz.matchVatRefund(userMessage)) {
     addStep(2, "VAT Refund", "ตรวจจับคำถามเรื่อง VAT Refund", "matched", t);
     finalLayer = 2;
     finalLayerName = "Safety: VAT Refund";
-    return finishTrace(buildVatRefundResponse());
+    return finishTrace(biz.buildVatRefundResponse());
   }
   addStep(2, "VAT Refund", "ตรวจจับคำถามเรื่อง VAT Refund", "skipped", t);
 
   // ── LAYER 3: Stock Inquiry ──
   t = now();
-  if (matchStockInquiry(userMessage)) {
-    // If we have an active product, give a product-specific stock response
+  if (biz.matchStockInquiry(userMessage)) {
     if (ctx.activeProduct) {
       addStep(3, "Stock Inquiry", "ตรวจจับคำถามสต็อก + มีบริบทสินค้า", "matched", t, {
         matchedProducts: [ctx.activeProduct.name],
@@ -484,19 +434,19 @@ function generateFallbackResponseWithTrace(
       finalLayer = 3;
       finalLayerName = "Safety: Stock (contextual)";
       return finishTrace(
-        `ผมขออนุญาตตรวจสอบสต็อก **${ctx.activeProduct.name}** กับทีมงานให้แน่ชัดก่อนนะครับ 📦\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ ระหว่างนี้ ให้ผมช่วยแนะนำข้อมูลส่วนอื่นก่อนไหมครับ?`
+        `ผมขออนุญาตตรวจสอบสต็อก **${ctx.activeProduct.name}** กับทีมงานให้แน่ชัดก่อนนะครับ\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ ระหว่างนี้ ให้ผมช่วยแนะนำข้อมูลส่วนอื่นก่อนไหมครับ?`
       );
     }
     addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "matched", t);
     finalLayer = 3;
     finalLayerName = "Safety: Stock Inquiry";
-    return finishTrace(buildStockCheckResponse());
+    return finishTrace(biz.buildStockCheckResponse());
   }
   addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "skipped", t);
 
   // ── LAYER 4: Discontinued product detection ──
   t = now();
-  const discontinued = matchDiscontinued(userMessage);
+  const discontinued = biz.matchDiscontinued(userMessage);
   if (discontinued) {
     addStep(4, "Discontinued Detection", "ตรวจจับสินค้าที่ยกเลิกจำหน่าย", "matched", t, {
       matchedTriggers: [discontinued.recommended],
@@ -505,14 +455,14 @@ function generateFallbackResponseWithTrace(
     finalLayer = 4;
     finalLayerName = "Discontinued Detection";
     finalIntent = "discontinued_product";
-    return finishTrace(buildDiscontinuedResponse(discontinued));
+    return finishTrace(biz.buildDiscontinuedResponse(discontinued));
   }
   addStep(4, "Discontinued Detection", "ตรวจจับสินค้าที่ยกเลิกจำหน่าย", "skipped", t);
 
-  // ── LAYER 5: Conversation Context Resolution (NEW!) ──
+  // ── LAYER 5: Conversation Context Resolution ──
   t = now();
   if (ctx.isFollowUp && ctx.activeProduct) {
-    const contextResponse = buildContextualResponse(ctx, userMessage);
+    const contextResponse = buildContextualResponse(ctx, userMessage, biz);
     if (contextResponse) {
       addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา", "matched", t, {
         intent: `follow-up: ${ctx.recentTopic || "general"}`,
@@ -534,7 +484,7 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 6: Intent Engine ──
   t = now();
-  const allScores = scoreIntents(userMessage);
+  const allScores = scoreIntents(userMessage, biz);
   const topIntent =
     allScores.length > 0 && allScores[0].score >= 2 ? allScores[0] : null;
 
@@ -558,7 +508,7 @@ function generateFallbackResponseWithTrace(
         intentResponse = intent.responseTemplate;
         break;
       case "contact_channels":
-        intentResponse = buildContactChannelsResponse();
+        intentResponse = biz.buildContactChannelsResponse();
         break;
       case "store_location_hours":
       case "service_plus_options":
@@ -570,10 +520,14 @@ function generateFallbackResponseWithTrace(
       case "installment_inquiry":
       case "offtopic_sensitive":
       case "offtopic_playful":
+      case "on_site_service":
+      case "warranty_info":
+      case "battery_symptom":
+      case "em_motorcycle":
         intentResponse = intent.responseTemplate;
         break;
       case "admin_escalation":
-        intentResponse = buildAdminEscalationResponse();
+        intentResponse = biz.buildAdminEscalationResponse();
         break;
       case "budget_recommendation": {
         const budgetMatch = lower.match(/(\d[\d,]*)\s*(บาท|฿)?/);
@@ -581,10 +535,10 @@ function generateFallbackResponseWithTrace(
           ? parseInt(budgetMatch[1].replace(/,/g, ""))
           : null;
         const pool = budget
-          ? getActiveProducts().filter((p) => p.price <= budget)
-          : getCheapestProducts(5);
+          ? biz.getActiveProducts().filter((p) => p.price <= budget)
+          : biz.getCheapestProducts(5);
         if (pool.length === 0) {
-          intentResponse = `ขออภัยครับ ไม่พบสินค้าในงบประมาณที่ระบุ 😊\n\nสินค้าราคาเริ่มต้นของเราครับ:\n${getCheapestProducts(3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}`;
+          intentResponse = `ขออภัยครับ ไม่พบสินค้าในงบประมาณที่ระบุ\n\nสินค้าราคาเริ่มต้นของเราครับ:\n${biz.getCheapestProducts(3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}`;
         } else {
           const list = pool
             .slice(0, 5)
@@ -593,43 +547,37 @@ function generateFallbackResponseWithTrace(
                 `💰 **${p.name}** — **${p.price.toLocaleString()} บาท**`
             )
             .join("\n");
-          intentResponse = `สินค้าที่เหมาะกับงบของคุณครับ 💰\n\n${list}\n\nสนใจรุ่นไหนให้ผมแจ้งรายละเอียดเพิ่มเติมได้เลยครับ! 😊`;
+          intentResponse = `สินค้าที่เหมาะกับงบของคุณครับ 💰\n\n${list}\n\nสนใจรุ่นไหนให้ผมแจ้งรายละเอียดเพิ่มเติมได้เลยครับ!`;
         }
         break;
       }
       case "recommendation": {
-        const popular = [
-          getActiveProducts().find((p) => p.name.includes("Avata 2 Fly More")),
-          getActiveProducts().find((p) =>
-            p.name.includes("Osmo Action 5 Pro")
-          ),
-          getActiveProducts().find((p) => p.name.includes("Air 3S")),
-          getActiveProducts().find((p) => p.name.includes("Mini 4 Pro")),
-        ].filter(Boolean);
+        const popular = biz.getActiveProducts().slice(0, 4);
         const list = popular
           .map(
             (p) =>
-              `🏆 **${p!.name}** — ${p!.price.toLocaleString()} บาท`
+              `🏆 **${p.name}** — ${p.price.toLocaleString()} บาท`
           )
           .join("\n");
-        intentResponse = `สินค้าแนะนำยอดนิยมจากร้านครับ 🔥\n\n${list}\n\n${intent.responseTemplate}`;
+        intentResponse = `สินค้าแนะนำยอดนิยมครับ\n\n${list}\n\n${intent.responseTemplate}`;
         break;
       }
       case "product_inquiry": {
-        const cats = getCategories();
-        intentResponse = `📂 หมวดหมู่สินค้าของ DJI 13 STORE ครับ:\n\n${cats
+        const cats = biz.getCategories();
+        intentResponse = `📂 หมวดหมู่สินค้าของ ${biz.name} ครับ:\n\n${cats
           .map((c) => {
-            const activeCount = getActiveProducts().filter(
+            const activeCount = biz.getActiveProducts().filter(
               (p) => p.category === c
             ).length;
-            return `• **${c}** — ${activeCount} รายการ (active)`;
+            return `• **${c}** — ${activeCount} รายการ`;
           })
-          .join("\n")}\n\nสนใจหมวดไหนครับ? 😊`;
+          .join("\n")}\n\nสนใจหมวดไหนครับ?`;
         break;
       }
+      case "ev_purchase":
       case "drone_purchase":
       case "product_details":
-        intentResponse = null;
+        intentResponse = null; // pass-through to next layers
         break;
       default:
         if (intent.responseTemplate) intentResponse = intent.responseTemplate;
@@ -656,7 +604,7 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 7: Sale scripts ──
   t = now();
-  const matchedScript = matchSaleScript(userMessage);
+  const matchedScript = biz.matchSaleScript(userMessage);
   if (matchedScript) {
     addStep(7, "Sale Scripts", "จับคู่กับ sale script", "matched", t, {
       matchedScript: matchedScript.triggers.join(", "),
@@ -669,7 +617,7 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 8: Knowledge base ──
   t = now();
-  const matchedDoc = matchKnowledgeDoc(userMessage);
+  const matchedDoc = biz.matchKnowledgeDoc(userMessage);
   if (matchedDoc) {
     addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "matched", t, {
       matchedDoc: matchedDoc.title,
@@ -682,20 +630,10 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 9: FAQ search ──
   t = now();
-  const faqTerms = [
-    { keys: ["สั่งซื้อ", "สั่ง", "order", "buy", "ซื้อยังไง"], topic: "สั่งซื้อ" },
-    { keys: ["ผ่อน", "installment", "บัตรเครดิต", "0%", "ชำระ", "payment"], topic: "ชำระเงิน" },
-    { keys: ["ส่ง", "จัดส่ง", "shipping", "delivery", "ค่าส่ง", "กี่วัน"], topic: "จัดส่ง" },
-    { keys: ["คืน", "เปลี่ยน", "return", "refund"], topic: "คืนสินค้า" },
-    { keys: ["ประกัน", "warranty", "เคลม", "care refresh", "service plus"], topic: "รับประกัน" },
-    { keys: ["จดทะเบียน", "ทะเบียน", "กฎหมาย", "register", "กสทช", "caat"], topic: "จดทะเบียน" },
-    { keys: ["เปรียบเทียบ", "ต่างกัน", "fly more", "fly smart", "compare", "vs"], topic: "เปรียบเทียบ" },
-    { keys: ["โปร", "ส่วนลด", "discount", "promotion", "coupon"], topic: "โปรโมชั่น" },
-  ];
   let faqHit = false;
-  for (const { keys, topic } of faqTerms) {
+  for (const { keys, topic } of biz.faqTerms) {
     if (keys.some((k) => lower.includes(k))) {
-      const hit = faqData.find((f) =>
+      const hit = biz.faqData.find((f) =>
         keys.some(
           (k) =>
             f.question.toLowerCase().includes(k) ||
@@ -720,7 +658,7 @@ function generateFallbackResponseWithTrace(
 
   // ── LAYER 10: Product search ──
   t = now();
-  const matchedProducts = searchProducts(userMessage);
+  const matchedProducts = biz.searchProducts(userMessage);
   if (matchedProducts.length > 0) {
     const top = matchedProducts.slice(0, 3);
     const cards = top.map(buildProductCard).join("\n\n---\n\n");
@@ -735,7 +673,7 @@ function generateFallbackResponseWithTrace(
     finalLayer = 10;
     finalLayerName = "Product Search";
     return finishTrace(
-      `พบสินค้าที่เกี่ยวข้อง ${matchedProducts.length} รายการครับ 🎉\n\n${cards}${more}\n\nสนใจรุ่นไหนเพิ่มเติมไหมครับ? 😊`
+      `พบสินค้าที่เกี่ยวข้อง ${matchedProducts.length} รายการครับ\n\n${cards}${more}\n\nสนใจรุ่นไหนเพิ่มเติมไหมครับ?`
     );
   }
   addStep(10, "Product Search", "ค้นหาสินค้า", "skipped", t);
@@ -747,63 +685,50 @@ function generateFallbackResponseWithTrace(
       lower.includes(k)
     )
   ) {
-    const cats = getCategories();
+    const cats = biz.getCategories();
     addStep(11, "Category Browse", "แสดงหมวดหมู่", "matched", t);
     finalLayer = 11;
     finalLayerName = "Category Browse";
     return finishTrace(
-      `📂 หมวดหมู่สินค้าของเรามีดังนี้ครับ:\n\n${cats
+      `📂 หมวดหมู่สินค้าของ ${biz.name} ครับ:\n\n${cats
         .map(
           (c) =>
-            `• **${c}** (${getProductsByCategory(c).length} รายการ)`
+            `• **${c}** (${biz.getProductsByCategory(c).length} รายการ)`
         )
-        .join("\n")}\n\nสนใจหมวดไหนครับ? 😊`
+        .join("\n")}\n\nสนใจหมวดไหนครับ?`
     );
   }
   addStep(11, "Category Browse", "แสดงหมวดหมู่", "skipped", t);
 
   // ── LAYER 12: Category-specific ──
   t = now();
-  const catChecks = [
-    { keys: ["โดรน", "drone", "บิน"], category: "Drone" },
-    { keys: ["action", "กล้อง", "osmo", "แอคชั่น"], category: "Action Camera" },
-    { keys: ["gimbal", "กิมบอล", "กันสั่น", "stabilizer"], category: "Gimbal" },
-    { keys: ["ถูก", "ประหยัด", "งบน้อย", "budget", "cheap", "ราคาเริ่มต้น"], category: "Budget" },
-  ];
-  for (const { keys, category } of catChecks) {
+  for (const { keys, category, label } of biz.categoryChecks) {
     if (keys.some((k) => lower.includes(k))) {
       let content = "";
-      if (category === "Drone") {
-        const drones = getActiveProducts().filter(
-          (p) => p.category === "FPV Drone" || p.category === "Camera Drone"
+      if (category === "Budget") {
+        const cheap = biz.getCheapestProducts(5);
+        content = `💡 สินค้าราคาเริ่มต้นครับ:\n\n${cheap.map((p) => `💰 **${p.name}** — **${p.price.toLocaleString()} บาท**`).join("\n")}\n\nสนใจรุ่นไหนบอกได้เลยครับ!`;
+      } else {
+        const items = biz.getActiveProducts().filter(
+          (p) => p.category === category
         );
-        content = `🚁 โดรน DJI ที่มีจำหน่ายครับ:\n\n${drones.slice(0, 5).map((p) => `🚁 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}\n\nสนใจรุ่นไหน หรืออยากให้ช่วยเลือกตามงบประมาณครับ?`;
-      } else if (category === "Action Camera") {
-        const cams = getActiveProducts().filter(
-          (p) => p.category === "Action Camera"
-        );
-        content = `📷 กล้องแอคชั่น DJI ที่มีจำหน่ายครับ:\n\n${cams.map((p) => `📷 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}\n\nสนใจรุ่นไหนครับ?`;
-      } else if (category === "Gimbal") {
-        const gimbals = getActiveProducts().filter(
-          (p) => p.category === "Gimbal"
-        );
-        content = `🎥 กิมบอล DJI ที่มีจำหน่ายครับ:\n\n${gimbals.map((p) => `🎥 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}\n\nสนใจรุ่นไหนครับ?`;
-      } else if (category === "Budget") {
-        const cheap = getCheapestProducts(5);
-        content = `💡 สินค้าราคาเริ่มต้นครับ:\n\n${cheap.map((p) => `💰 **${p.name}** — **${p.price.toLocaleString()} บาท**`).join("\n")}\n\nสนใจรุ่นไหนบอกได้เลยครับ! 😊`;
+        if (items.length > 0) {
+          content = `${label} ที่มีจำหน่ายครับ:\n\n${items.slice(0, 5).map((p) => `• **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}${items.length > 5 ? `\n\n_...และอีก ${items.length - 5} รายการ_` : ""}\n\nสนใจรุ่นไหนครับ?`;
+        }
       }
-      addStep(12, "Category Specific", `ค้นหาตามหมวด ${category}`, "matched", t, {
-        matchedCategory: category,
-      });
-      finalLayer = 12;
-      finalLayerName = `Category: ${category}`;
-      return finishTrace(content);
+      if (content) {
+        addStep(12, "Category Specific", `ค้นหาตามหมวด ${label}`, "matched", t, {
+          matchedCategory: category,
+        });
+        finalLayer = 12;
+        finalLayerName = `Category: ${label}`;
+        return finishTrace(content);
+      }
     }
   }
   addStep(12, "Category Specific", "ค้นหาตามหมวดเฉพาะ", "skipped", t);
 
   // ── LAYER 13: Context-aware fallback ──
-  // If we have context but nothing else matched, try to give a relevant response
   t = now();
   if (ctx.activeProduct && allMessages.length > 2) {
     const p = ctx.activeProduct;
@@ -813,7 +738,7 @@ function generateFallbackResponseWithTrace(
     finalLayer = 13;
     finalLayerName = `Context Fallback: ${p.name}`;
     return finishTrace(
-      `เกี่ยวกับ **${p.name}** ครับ:\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสนใจสอบถามเรื่องไหนเพิ่มเติมครับ?\n- 📋 รายละเอียดสเปค\n- 🛡️ ประกันและ DJI Care\n- 🚚 การจัดส่ง\n- 💳 ผ่อนชำระ\n- 🛒 สั่งซื้อ\n\nหรือจะดูสินค้าอื่นก็บอกได้เลยครับ! 😊`
+      `เกี่ยวกับ **${p.name}** ครับ:\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสนใจสอบถามเรื่องไหนเพิ่มเติมครับ?\n- รายละเอียดสเปค\n- ประกัน\n- การสั่งซื้อ\n\nหรือจะดูสินค้าอื่นก็บอกได้เลยครับ!`
     );
   }
   addStep(13, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "skipped", t);
@@ -824,9 +749,7 @@ function generateFallbackResponseWithTrace(
   finalLayer = 14;
   finalLayerName = "Default Fallback";
 
-  return finishTrace(
-    "ขอบคุณที่ติดต่อ **DJI 13 STORE** ครับ! 😊\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- 🚁 โดรน DJI ทุกรุ่น\n- 📷 กล้องแอคชั่น Osmo\n- 🎥 กิมบอลกันสั่น\n- 🔧 อุปกรณ์เสริม\n- 💰 ราคาและโปรโมชั่น\n- 🚚 การจัดส่ง/รับประกัน\n\nลองพิมพ์ชื่อสินค้า เช่น 'Avata 2' หรือ 'Osmo Action 5 Pro' ได้เลยครับ!"
-  );
+  return finishTrace(biz.defaultFallbackMessage);
 
   // ──────────────────────────────────────────────
   function finishTrace(content: string): TracedResult {
@@ -866,7 +789,7 @@ function generateFallbackResponseWithTrace(
 
     const trace: PipelineTrace = {
       totalDurationMs,
-      mode: "fallback",
+      mode: "pipeline",
       steps,
       finalLayer,
       finalLayerName,
@@ -880,22 +803,48 @@ function generateFallbackResponseWithTrace(
 }
 
 // ─────────────────────────────────────────────────────────────
-// POST handler — supports Anthropic Claude & OpenAI
+// POST handler — PIPELINE FIRST, GPT only on default fallback
 // ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = (await req.json()) as { messages: ChatMessage[] };
+    const body = await req.json();
+    const { messages, businessId: reqBusinessId } = body as {
+      messages: ChatMessage[];
+      businessId?: string;
+    };
     const userMessage = messages[messages.length - 1]?.content || "";
+    const businessId = reqBusinessId || DEFAULT_BUSINESS_ID;
+    const biz = getBusinessConfig(businessId);
+
+    // ══════════════════════════════════════════════════════
+    // STEP 1: ALWAYS run the 15-layer pipeline FIRST
+    // ══════════════════════════════════════════════════════
+    const { content: pipelineContent, trace: pipelineTrace } =
+      generatePipelineResponseWithTrace(userMessage, messages, biz);
+
+    // ══════════════════════════════════════════════════════
+    // STEP 2: If pipeline resolved (layers 0-13), return it
+    // ══════════════════════════════════════════════════════
+    if (pipelineTrace.finalLayer < 14) {
+      return NextResponse.json({
+        content: pipelineContent,
+        trace: pipelineTrace,
+      });
+    }
+
+    // ══════════════════════════════════════════════════════
+    // STEP 3: Pipeline reached Default Fallback (layer 14)
+    //         → Try GPT as last resort
+    // ══════════════════════════════════════════════════════
 
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
 
     // ── Priority 1: Anthropic Claude ──
     if (anthropicKey) {
-      const systemPrompt = buildSystemPrompt();
+      const systemPrompt = buildSystemPrompt(biz);
 
-      // Convert messages to Anthropic format (no "system" role in messages)
       const anthropicMessages = messages.slice(-10).map((m) => ({
         role: m.role === "system" ? ("user" as const) : m.role,
         content: m.content,
@@ -921,25 +870,25 @@ export async function POST(req: NextRequest) {
       );
 
       if (!response.ok) {
-        // Fallback to local pipeline
-        const { content, trace } = generateFallbackResponseWithTrace(
-          userMessage,
-          messages
-        );
-        trace.mode = "claude_fallback";
-        return NextResponse.json({ content, trace });
+        // Claude failed — return pipeline result as fallback
+        pipelineTrace.mode = "claude_fallback";
+        return NextResponse.json({
+          content: pipelineContent,
+          trace: pipelineTrace,
+        });
       }
 
-      // Build trace for Claude streaming mode
+      // Build trace: pipeline ran first (all 15 layers), then Claude
       const claudeTrace: PipelineTrace = {
-        totalDurationMs: 0,
-        mode: "claude_stream",
+        totalDurationMs: pipelineTrace.totalDurationMs,
+        mode: "pipeline_then_claude",
         steps: [
+          ...pipelineTrace.steps,
           {
-            layer: 0,
+            layer: 15,
             name: "Claude Sonnet",
             description:
-              "ส่งไปประมวลผลด้วย Claude Sonnet แบบ streaming (context-aware)",
+              "Pipeline ไม่ match → ส่งไป Claude Sonnet แบบ streaming",
             status: "matched",
             durationMs: 0,
             details: {
@@ -947,8 +896,8 @@ export async function POST(req: NextRequest) {
             },
           },
         ],
-        finalLayer: 0,
-        finalLayerName: "Claude Sonnet",
+        finalLayer: 15,
+        finalLayerName: "Claude Sonnet (GPT fallback)",
         userMessage,
         timestamp: new Date().toISOString(),
       };
@@ -960,7 +909,7 @@ export async function POST(req: NextRequest) {
       const stream = new ReadableStream({
         async start(controller) {
           claudeTrace.totalDurationMs =
-            Math.round((now() - streamStart) * 100) / 100;
+            Math.round((now() - streamStart + pipelineTrace.totalDurationMs) * 100) / 100;
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ trace: claudeTrace })}\n\n`
@@ -990,7 +939,6 @@ export async function POST(req: NextRequest) {
                   try {
                     const parsed = JSON.parse(data);
 
-                    // Anthropic SSE: content_block_delta
                     if (
                       parsed.type === "content_block_delta" &&
                       parsed.delta?.type === "text_delta"
@@ -1002,7 +950,6 @@ export async function POST(req: NextRequest) {
                       );
                     }
 
-                    // Anthropic SSE: message_stop
                     if (parsed.type === "message_stop") {
                       controller.enqueue(
                         encoder.encode("data: [DONE]\n\n")
@@ -1032,7 +979,7 @@ export async function POST(req: NextRequest) {
 
     // ── Priority 2: OpenAI ──
     if (openaiKey) {
-      const systemPrompt = buildSystemPrompt();
+      const systemPrompt = buildSystemPrompt(biz);
 
       const response = await fetch(
         "https://api.openai.com/v1/chat/completions",
@@ -1056,23 +1003,23 @@ export async function POST(req: NextRequest) {
       );
 
       if (!response.ok) {
-        const { content, trace } = generateFallbackResponseWithTrace(
-          userMessage,
-          messages
-        );
-        trace.mode = "openai_fallback";
-        return NextResponse.json({ content, trace });
+        pipelineTrace.mode = "openai_fallback";
+        return NextResponse.json({
+          content: pipelineContent,
+          trace: pipelineTrace,
+        });
       }
 
       const openaiTrace: PipelineTrace = {
-        totalDurationMs: 0,
-        mode: "openai_stream",
+        totalDurationMs: pipelineTrace.totalDurationMs,
+        mode: "pipeline_then_openai",
         steps: [
+          ...pipelineTrace.steps,
           {
-            layer: 0,
+            layer: 15,
             name: "OpenAI GPT-4o-mini",
             description:
-              "ส่งไปประมวลผลด้วย GPT-4o-mini แบบ streaming (context-aware)",
+              "Pipeline ไม่ match → ส่งไป GPT-4o-mini แบบ streaming",
             status: "matched",
             durationMs: 0,
             details: {
@@ -1080,8 +1027,8 @@ export async function POST(req: NextRequest) {
             },
           },
         ],
-        finalLayer: 0,
-        finalLayerName: "OpenAI GPT-4o-mini",
+        finalLayer: 15,
+        finalLayerName: "OpenAI GPT-4o-mini (GPT fallback)",
         userMessage,
         timestamp: new Date().toISOString(),
       };
@@ -1093,7 +1040,7 @@ export async function POST(req: NextRequest) {
       const stream = new ReadableStream({
         async start(controller) {
           openaiTrace.totalDurationMs =
-            Math.round((now() - streamStart) * 100) / 100;
+            Math.round((now() - streamStart + pipelineTrace.totalDurationMs) * 100) / 100;
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ trace: openaiTrace })}\n\n`
@@ -1160,18 +1107,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Priority 3: Smart Fallback (no API key) ──
-    const { content, trace } = generateFallbackResponseWithTrace(
-      userMessage,
-      messages
-    );
-    return NextResponse.json({ content, trace });
+    // ── No API key: return pipeline default fallback ──
+    return NextResponse.json({
+      content: pipelineContent,
+      trace: pipelineTrace,
+    });
   } catch (error) {
     console.error("Chat API error:", error);
     return NextResponse.json(
       {
         content:
-          "ขออภัยครับ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้งครับ 🙏",
+          "ขออภัยครับ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้งครับ",
       },
       { status: 500 }
     );

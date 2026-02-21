@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { saleScripts as initialScripts, type SaleScript } from "@/lib/saleScripts";
+import { type SaleScript } from "@/lib/saleScripts";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -155,8 +156,9 @@ function ScriptModal({
   );
 }
 
-export default function SaleScriptsPage() {
-  const [items, setItems] = useLocalStorage<SaleScript[]>("dji13_sale_scripts", [...initialScripts]);
+export default function SaleScriptsPage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
+  const [items, setItems] = useLocalStorage<SaleScript[]>(`${businessId}_sale_scripts`, [...config.saleScripts]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<SaleScript | null | "new">(null);
   const [deleting, setDeleting] = useState<SaleScript | null>(null);

@@ -7,7 +7,7 @@ export interface ChatEvent {
   timestamp: string;
   type: "message_sent" | "response_received" | "session_start" | "session_end";
   /** The AI mode that handled the response */
-  mode?: "claude_stream" | "claude_fallback" | "openai_stream" | "openai_fallback" | "fallback";
+  mode?: "pipeline" | "pipeline_then_claude" | "pipeline_then_openai" | "claude_fallback" | "openai_fallback" | "claude_stream" | "openai_stream" | "fallback";
   /** Which pipeline layer resolved the response */
   finalLayer?: number;
   finalLayerName?: string;

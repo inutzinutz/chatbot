@@ -3,8 +3,8 @@
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
-  channels as initialChannels,
   type ChannelInfo,
   type ChannelType,
   type ChannelCommonSettings,
@@ -1035,10 +1035,11 @@ function ChannelCard({
 /*  Main ChannelsPage                                                  */
 /* ------------------------------------------------------------------ */
 
-export default function ChannelsPage() {
+export default function ChannelsPage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
   const [channelList, setChannelList] = useLocalStorage<ChannelInfo[]>(
-    "dji13_channels",
-    initialChannels.map((ch) => structuredClone(ch))
+    `${businessId}_channels`,
+    config.channels.map((ch) => structuredClone(ch))
   );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
@@ -1085,7 +1086,7 @@ export default function ChannelsPage() {
           <div>
             <h2 className="text-xl font-bold text-gray-900">Channels</h2>
             <p className="text-sm text-gray-500 mt-0.5">
-              Connected platforms for DJI 13 STORE
+              Connected platforms for {config.name}
             </p>
           </div>
           <div className="flex items-center gap-3">
