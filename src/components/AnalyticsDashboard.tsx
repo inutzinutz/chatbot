@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { getChatEvents, computeAnalytics, clearChatEvents } from "@/lib/chatEvents";
-import { getBusinessConfig } from "@/lib/businessUnits";
-import type { ComputedAnalytics } from "@/lib/chatEvents";
+import { useState, useEffect, useCallback } from "react";
+import type { RealAnalyticsData } from "@/app/api/analytics/route";
 import {
   Users,
   MessageSquare,
@@ -11,14 +9,16 @@ import {
   TrendingUp,
   BarChart3,
   Globe,
-  Languages,
-  Search,
   Clock,
   Layers,
-  Cpu,
-  Trash2,
+  RefreshCw,
+  Pin,
+  BotOff,
+  CalendarDays,
   Activity,
 } from "lucide-react";
+
+// ── Sub-components ──────────────────────────────────────────────────
 
 function StatCard({
   icon: Icon,
@@ -40,6 +40,8 @@ function StatCard({
     orange: "from-orange-50 to-orange-100 border-orange-200 text-orange-600",
     indigo: "from-indigo-50 to-indigo-100 border-indigo-200 text-indigo-600",
     violet: "from-violet-50 to-violet-100 border-violet-200 text-violet-600",
+    rose: "from-rose-50 to-rose-100 border-rose-200 text-rose-600",
+    amber: "from-amber-50 to-amber-100 border-amber-200 text-amber-600",
   };
   const c = colorMap[color] || colorMap.blue;
 
@@ -82,7 +84,7 @@ function BarChartSimple({
         const pct = max > 0 ? (val / max) * 100 : 0;
         return (
           <div key={i} className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 w-28 truncate text-right shrink-0">
+            <span className="text-xs text-gray-500 w-32 truncate text-right shrink-0">
               {String(item[labelKey])}
             </span>
             <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
@@ -133,10 +135,10 @@ function PlatformPills({
 }) {
   const total = data.reduce((a, b) => a + b.count, 0);
   const colors: Record<string, string> = {
-    FACEBOOK: "bg-blue-500",
     LINE: "bg-green-500",
+    "Web Chat": "bg-indigo-500",
+    FACEBOOK: "bg-blue-500",
     WHATS_APP: "bg-emerald-500",
-    WEB_EMBED: "bg-indigo-500",
   };
 
   return (
@@ -160,217 +162,204 @@ function PlatformPills({
           </div>
         );
       })}
+      {data.length === 0 && (
+        <p className="text-xs text-gray-400 text-center py-4">ไม่มีข้อมูล</p>
+      )}
     </div>
   );
 }
 
-function LanguagePills({
-  data,
-}: {
-  data: { language: string; count: number }[];
-}) {
-  const total = data.reduce((a, b) => a + b.count, 0);
-  const langNames: Record<string, string> = {
-    th: "Thai",
-    en: "English",
-    my: "Myanmar",
-    fr: "French",
-    lo: "Lao",
-    es: "Spanish",
-    ar: "Arabic",
-  };
+// ── Skeleton loader ──────────────────────────────────────────────────
 
+function Skeleton({ className }: { className?: string }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {data.map((d) => {
-        const pct = total > 0 ? ((d.count / total) * 100).toFixed(1) : "0";
-        return (
-          <div
-            key={d.language}
-            className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-1.5"
-          >
-            <span className="text-xs font-semibold text-gray-700">
-              {langNames[d.language] || d.language}
-            </span>
-            <span className="text-[10px] text-gray-400">
-              {d.count} ({pct}%)
-            </span>
-          </div>
-        );
-      })}
+    <div className={`animate-pulse bg-gray-200 rounded ${className ?? ""}`} />
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-24" />
+        ))}
+      </div>
+      <Skeleton className="h-48" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Skeleton className="h-48" />
+        <Skeleton className="h-48" />
+      </div>
     </div>
   );
 }
 
-/** Mode label mapping */
-const MODE_LABELS: Record<string, string> = {
-  claude_stream: "Claude Stream",
-  claude_fallback: "Claude Fallback",
-  openai_stream: "OpenAI Stream",
-  openai_fallback: "OpenAI Fallback",
-  fallback: "Smart Fallback",
-};
+// ── Main Component ───────────────────────────────────────────────────
 
 export default function AnalyticsDashboard({ businessId }: { businessId: string }) {
-  const config = getBusinessConfig(businessId);
-  const d = config.analyticsData;
-  const usagePct = Math.round((d.package.currentUsage / d.package.monthlyLimit) * 100);
+  const [data, setData] = useState<RealAnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [liveStats, setLiveStats] = useState<ComputedAnalytics | null>(null);
-  const [tab, setTab] = useState<"baseline" | "live">("baseline");
+  const fetchAnalytics = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
 
-  // Load live stats from localStorage
-  useEffect(() => {
-    const events = getChatEvents();
-    if (events.length > 0) {
-      setLiveStats(computeAnalytics(events));
+    try {
+      const res = await fetch(`/api/analytics?businessId=${encodeURIComponent(businessId)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setData(json as RealAnalyticsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [businessId]);
 
-    // Refresh every 5 seconds
-    const interval = setInterval(() => {
-      const freshEvents = getChatEvents();
-      if (freshEvents.length > 0) {
-        setLiveStats(computeAnalytics(freshEvents));
-      }
-    }, 5000);
+  // Initial load
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => fetchAnalytics(), 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAnalytics]);
 
-  const handleClearLive = () => {
-    clearChatEvents();
-    setLiveStats(null);
-  };
+  const lastUpdated = data
+    ? new Date(data.computedAt).toLocaleTimeString("th-TH")
+    : null;
 
   return (
     <div className="flex-1 overflow-y-auto bg-gray-50/50">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
+
         {/* Page Header */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Analytics</h2>
             <p className="text-sm text-gray-500 mt-0.5">
-              Customer Summary &mdash; Last 30 Days
+              ข้อมูลจริงจาก Redis
+              {lastUpdated && (
+                <span className="ml-2 text-gray-400">· อัปเดต {lastUpdated}</span>
+              )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-              <button
-                onClick={() => setTab("baseline")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  tab === "baseline"
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                Baseline Data
-              </button>
-              <button
-                onClick={() => setTab("live")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1 ${
-                  tab === "live"
-                    ? "bg-emerald-600 text-white"
-                    : "bg-white text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <Activity className="h-3 w-3" />
-                Live Tracking
-                {liveStats && liveStats.totalMessages > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">
-                    {liveStats.totalMessages}
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => fetchAnalytics(true)}
+            disabled={loading || refreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            รีเฟรช
+          </button>
         </div>
 
-        {tab === "baseline" ? (
-          /* ── BASELINE TAB ── */
+        {/* Error state */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+            เกิดข้อผิดพลาด: {error} —{" "}
+            <button
+              onClick={() => fetchAnalytics(true)}
+              className="underline font-medium"
+            >
+              ลองใหม่
+            </button>
+          </div>
+        )}
+
+        {/* Loading skeleton */}
+        {loading && !data && <DashboardSkeleton />}
+
+        {/* Data */}
+        {data && (
           <>
-            {/* Stat Cards */}
+            {/* ── Row 1: Stat Cards (8 cards, 2 rows on mobile, 4 cols on desktop) ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 icon={Users}
-                label="Current Usage"
-                value={d.package.currentUsage.toLocaleString()}
-                sub="customers this month"
+                label="บทสนทนาทั้งหมด"
+                value={data.totalConversations.toLocaleString()}
+                sub="unique users"
                 color="blue"
               />
               <StatCard
-                icon={TrendingUp}
-                label="Monthly Limit"
-                value={d.package.monthlyLimit.toLocaleString()}
-                sub={`${usagePct}% used`}
-                color="green"
-              />
-              <StatCard
                 icon={MessageSquare}
-                label="Avg Messages"
-                value={d.conversation.avgMessages}
-                sub="per customer"
+                label="ข้อความทั้งหมด"
+                value={data.totalMessages.toLocaleString()}
+                sub="รวมทุก conversation"
                 color="indigo"
               />
               <StatCard
+                icon={TrendingUp}
+                label="เฉลี่ยต่อการสนทนา"
+                value={data.avgMessagesPerConv}
+                sub="ข้อความ / บทสนทนา"
+                color="green"
+              />
+              <StatCard
                 icon={Flame}
-                label="Max Messages"
-                value={d.conversation.maxMessages}
-                sub="longest conversation"
+                label="สูงสุด"
+                value={data.maxMessagesPerConv.toLocaleString()}
+                sub="ข้อความในบทสนทนาเดียว"
                 color="orange"
+              />
+              <StatCard
+                icon={Activity}
+                label="Active วันนี้"
+                value={data.activeToday.toLocaleString()}
+                sub="ใน 24 ชั่วโมงที่ผ่านมา"
+                color="emerald"
+              />
+              <StatCard
+                icon={CalendarDays}
+                label="Active สัปดาห์นี้"
+                value={data.activeThisWeek.toLocaleString()}
+                sub="ใน 7 วันที่ผ่านมา"
+                color="violet"
+              />
+              <StatCard
+                icon={Pin}
+                label="Pinned (Escalated)"
+                value={data.pinnedCount.toLocaleString()}
+                sub="รอ admin ตอบ"
+                color="rose"
+              />
+              <StatCard
+                icon={BotOff}
+                label="Bot ปิดอยู่"
+                value={data.botDisabledCount.toLocaleString()}
+                sub="บทสนทนาที่ปิด bot"
+                color="amber"
               />
             </div>
 
-            {/* Hourly Contact Pattern */}
+            {/* ── Row 2: Hourly Contact Pattern ── */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <Clock className="h-4 w-4 text-blue-500" />
                 <h3 className="text-sm font-semibold text-gray-900">
-                  Contact Time Pattern
+                  รูปแบบเวลาติดต่อ (เวลาไทย UTC+7)
                 </h3>
               </div>
-              <HourlyChart data={d.hourlyContacts} />
+              <HourlyChart data={data.hourlyContacts} />
               <div className="flex justify-between mt-2 text-[9px] text-gray-400 px-1">
-                <span>12AM</span>
-                <span>6AM</span>
-                <span>12PM</span>
-                <span>6PM</span>
-                <span>11PM</span>
+                <span>00:00</span>
+                <span>06:00</span>
+                <span>12:00</span>
+                <span>18:00</span>
+                <span>23:00</span>
               </div>
             </div>
 
-            {/* Two Column: Intents + Keywords */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <BarChart3 className="h-4 w-4 text-orange-500" />
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Popular Intents
-                  </h3>
-                </div>
-                <BarChartSimple
-                  data={d.intents as unknown as Record<string, unknown>[]}
-                  labelKey="intent"
-                  valueKey="count"
-                  color="#f97316"
-                />
-              </div>
-
-              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <Search className="h-4 w-4 text-indigo-500" />
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Top Keywords
-                  </h3>
-                </div>
-                <BarChartSimple
-                  data={d.topKeywords as unknown as Record<string, unknown>[]}
-                  labelKey="keyword"
-                  valueKey="count"
-                  color="#6366f1"
-                />
-              </div>
-            </div>
-
-            {/* Two Column: Platform + Language */}
+            {/* ── Row 3: Platform + Pipeline Layer ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
@@ -379,182 +368,50 @@ export default function AnalyticsDashboard({ businessId }: { businessId: string 
                     Platform Distribution
                   </h3>
                 </div>
-                <PlatformPills data={d.platforms} />
+                <PlatformPills data={data.platforms} />
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
-                  <Languages className="h-4 w-4 text-emerald-500" />
+                  <Layers className="h-4 w-4 text-indigo-500" />
                   <h3 className="text-sm font-semibold text-gray-900">
-                    Language Distribution
+                    Pipeline Layer ที่ตอบ
                   </h3>
+                  <span className="text-[10px] text-gray-400 ml-auto">
+                    จาก sample ข้อความล่าสุด
+                  </span>
                 </div>
-                <LanguagePills data={d.languages} />
+                {data.pipelineLayerDist.length > 0 ? (
+                  <BarChartSimple
+                    data={data.pipelineLayerDist as unknown as Record<string, unknown>[]}
+                    labelKey="layer"
+                    valueKey="count"
+                    color="#6366f1"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-8">
+                    ยังไม่มีข้อมูล pipeline layer
+                    <br />
+                    (ต้องมีข้อความที่บันทึก pipelineLayerName)
+                  </p>
+                )}
               </div>
             </div>
-          </>
-        ) : (
-          /* ── LIVE TRACKING TAB ── */
-          <>
-            {!liveStats || liveStats.totalMessages === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-12 shadow-sm text-center">
-                <div className="mx-auto h-14 w-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mb-4">
-                  <Activity className="h-6 w-6 text-emerald-500" />
+
+            {/* ── Row 4: New Conversations Today ── */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-orange-500" />
+                  <span className="text-sm font-semibold text-gray-900">
+                    บทสนทนาใหม่วันนี้
+                  </span>
                 </div>
-                <h3 className="text-sm font-bold text-gray-900 mb-1">
-                  No Live Data Yet
-                </h3>
-                <p className="text-xs text-gray-500 max-w-sm mx-auto">
-                  Start chatting with the AI in the Chat or AI Testing page.
-                  Events will be tracked automatically and displayed here.
-                </p>
+                <span className="text-2xl font-bold text-orange-600">
+                  {data.newConversationsToday.toLocaleString()}
+                </span>
               </div>
-            ) : (
-              <>
-                {/* Live stat cards */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <StatCard
-                    icon={MessageSquare}
-                    label="Messages Sent"
-                    value={liveStats.totalMessages}
-                    sub="from this browser"
-                    color="blue"
-                  />
-                  <StatCard
-                    icon={Cpu}
-                    label="AI Responses"
-                    value={liveStats.totalResponses}
-                    sub="pipeline processed"
-                    color="green"
-                  />
-                  <StatCard
-                    icon={Clock}
-                    label="Avg Response"
-                    value={`${liveStats.avgResponseTimeMs}ms`}
-                    sub="response time"
-                    color="violet"
-                  />
-                  <StatCard
-                    icon={Layers}
-                    label="Sessions"
-                    value={liveStats.totalSessions}
-                    sub="chat resets"
-                    color="orange"
-                  />
-                </div>
-
-                {/* Live hourly pattern */}
-                {liveStats.hourlyDistribution.some((h) => h.count > 0) && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Clock className="h-4 w-4 text-emerald-500" />
-                      <h3 className="text-sm font-semibold text-gray-900">
-                        Live Contact Pattern
-                      </h3>
-                      <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
-                        Live
-                      </span>
-                    </div>
-                    <HourlyChart data={liveStats.hourlyDistribution} />
-                    <div className="flex justify-between mt-2 text-[9px] text-gray-400 px-1">
-                      <span>12AM</span>
-                      <span>6AM</span>
-                      <span>12PM</span>
-                      <span>6PM</span>
-                      <span>11PM</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Two Column: Mode + Layer Distribution */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {liveStats.modeDistribution.length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Cpu className="h-4 w-4 text-violet-500" />
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          AI Mode Distribution
-                        </h3>
-                      </div>
-                      <BarChartSimple
-                        data={liveStats.modeDistribution.map((m) => ({
-                          mode: MODE_LABELS[m.mode] || m.mode,
-                          count: m.count,
-                        })) as unknown as Record<string, unknown>[]}
-                        labelKey="mode"
-                        valueKey="count"
-                        color="#8b5cf6"
-                      />
-                    </div>
-                  )}
-
-                  {liveStats.layerDistribution.length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Layers className="h-4 w-4 text-indigo-500" />
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          Pipeline Layer Resolution
-                        </h3>
-                      </div>
-                      <BarChartSimple
-                        data={liveStats.layerDistribution as unknown as Record<string, unknown>[]}
-                        labelKey="layer"
-                        valueKey="count"
-                        color="#6366f1"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Two Column: Intents + Keywords (from live data) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {liveStats.topIntents.length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <BarChart3 className="h-4 w-4 text-orange-500" />
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          Detected Intents (Live)
-                        </h3>
-                      </div>
-                      <BarChartSimple
-                        data={liveStats.topIntents as unknown as Record<string, unknown>[]}
-                        labelKey="intent"
-                        valueKey="count"
-                        color="#f97316"
-                      />
-                    </div>
-                  )}
-
-                  {liveStats.topKeywords.length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Search className="h-4 w-4 text-indigo-500" />
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          Top Keywords (Live)
-                        </h3>
-                      </div>
-                      <BarChartSimple
-                        data={liveStats.topKeywords as unknown as Record<string, unknown>[]}
-                        labelKey="keyword"
-                        valueKey="count"
-                        color="#6366f1"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Clear button */}
-                <div className="flex justify-end">
-                  <button
-                    onClick={handleClearLive}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    Clear Live Data
-                  </button>
-                </div>
-              </>
-            )}
+            </div>
           </>
         )}
       </div>
