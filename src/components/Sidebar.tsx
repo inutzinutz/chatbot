@@ -22,6 +22,7 @@ import {
   ChevronsUpDown,
   Battery,
   Plane,
+  Wrench,
   LogOut,
   User,
   Activity,
@@ -119,7 +120,7 @@ export default function Sidebar({
   const canSwitchBusiness = allowedBusinesses.length > 1;
 
   const currentBiz = businessUnitList.find((b) => b.id === businessId) ?? businessUnitList[0];
-  const BizIcon = currentBiz.icon === "battery" ? Battery : Plane;
+  const BizIcon = currentBiz.icon === "battery" ? Battery : currentBiz.icon === "wrench" ? Wrench : Plane;
 
   // Close business switcher dropdown on outside click
   useEffect(() => {
@@ -176,7 +177,7 @@ export default function Sidebar({
         {bizMenuOpen && !collapsed && canSwitchBusiness && (
           <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
             {allowedBusinesses.map((biz) => {
-              const Icon = biz.icon === "battery" ? Battery : Plane;
+              const Icon = biz.icon === "battery" ? Battery : biz.icon === "wrench" ? Wrench : Plane;
               const isSelected = biz.id === businessId;
               return (
                 <button
