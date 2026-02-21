@@ -438,7 +438,7 @@ export async function POST(req: NextRequest) {
       // Must run BEFORE the bot-enabled check so the subsequent reply goes through.
       const CANCEL_ESCALATION_TRIGGERS = [
         "ไม่ต้องแล้ว", "คุยกับบอทก่อน", "คุยกับบอท", "ไม่ต้องการแอดมิน",
-        "บอทก็ได้", "ยกเลิก", "cancel", "nevermind", "never mind",
+        "บอทก็ได้", "ยกเลิก", "nevermind", "never mind",
         "bot ก็ได้", "ai ก็ได้", "ถามบอทก่อน", "ถามบอท",
       ];
       const isCancelMsg = CANCEL_ESCALATION_TRIGGERS.some((t) =>
