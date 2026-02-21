@@ -1,4 +1,4 @@
-/* ------------------------------------------------------------------ */
+﻿/* ------------------------------------------------------------------ */
 /*  Shared Pipeline — used by /api/chat and /api/line/webhook          */
 /* ------------------------------------------------------------------ */
 
@@ -365,46 +365,43 @@ function buildDetailedEMResponse(p: Product, biz: BusinessConfig): string {
   lines.push(`💰 ราคา: **${p.price.toLocaleString()} บาท**`);
   lines.push("");
 
-  // Specs
+  // Specs — parse from Motor: / Battery: / Range: / Top Speed: / Charge: line
   lines.push("📋 สเปค:");
   if (specLine) {
-    const specs = specLine.split("|").map((s) => s.trim()).filter(Boolean);
-    for (const spec of specs) {
-      lines.push(`  • ${spec}`);
-    }
+    const motor = specLine.match(/Motor:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const battery = specLine.match(/Battery:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const range = specLine.match(/Range:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const speed = specLine.match(/Top Speed:\s*([^\|]+)/)?.[1]?.trim() || "";
+    const charge = specLine.match(/Charge:\s*([^\|]+)/)?.[1]?.trim() || "";
+    if (motor) lines.push(`  • มอเตอร์: ${motor}`);
+    if (battery) lines.push(`  • แบตเตอรี่: ${battery}`);
+    if (range) lines.push(`  • ระยะวิ่ง: ${range} กม./ชาร์จ`);
+    if (speed) lines.push(`  • ความเร็วสูงสุด: ${speed} กม./ชม.`);
+    if (charge) lines.push(`  • เวลาชาร์จ: ${charge}`);
   }
   lines.push("");
 
-  // Features from description
+  // Features — pull first sentence of Thai description
   lines.push("✨ จุดเด่น:");
-  if (thaiDesc.includes("กะทัดรัด") || thaiDesc.includes("ในเมือง")) {
-    lines.push("  • ขนาดกะทัดรัด คล่องตัว เหมาะใช้งานในเมือง");
-  }
-  if (thaiDesc.includes("คลาสสิก") || thaiDesc.includes("อิตาเลียน")) {
-    lines.push("  • ดีไซน์คลาสสิก สไตล์อิตาเลียน สวยโดดเด่น");
-  }
-  if (thaiDesc.includes("มาตรฐาน")) {
-    lines.push("  • รุ่นมาตรฐาน เหมาะทั้งในเมืองและทางไกล");
-  }
-  if (thaiDesc.includes("สมรรถนะสูง") || thaiDesc.includes("อัปเกรด")) {
-    lines.push("  • รุ่นอัปเกรด สมรรถนะสูง กำลังมอเตอร์เหนือชั้น");
-  }
-  if (thaiDesc.includes("ระยะทางไกล")) {
-    lines.push("  • เน้นระยะทางไกล วิ่งได้ไกลที่สุดในซีรีส์");
-  }
-  if (thaiDesc.includes("สปอร์ต") || thaiDesc.includes("ทันสมัย")) {
-    lines.push("  • สไตล์สปอร์ต ดีไซน์ทันสมัย พลังแรง");
-  }
+  // Extract the first Thai sentence as the highlight
+  const highlight = thaiDesc.split(/[.。]/)[0].trim();
+  if (highlight) lines.push(`  • ${highlight}`);
   if (thaiDesc.includes("จดทะเบียน") || p.tags.includes("จดทะเบียนได้")) {
-    lines.push("  • จดทะเบียนได้ตามกฎหมาย พร้อม พ.ร.บ.");
+    lines.push("  • จดทะเบียนได้ตามกฎหมาย ผ่านมาตรฐาน มอก. + UNR136");
   }
   lines.push("");
 
-  // Warranty
+  // Warranty — read from description Warranty: line
+  const warrantyLine = descLines.find((l) => l.startsWith("Warranty:"));
   lines.push("🔧 รับประกัน:");
-  lines.push("  • มอเตอร์: 3 ปี");
-  lines.push("  • แบตเตอรี่: 3 ปี / 30,000 กม.");
-  lines.push("  • เฟรม: 5 ปี");
+  if (warrantyLine) {
+    const parts = warrantyLine.replace("Warranty:", "").split("|").map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) lines.push(`  • ${part}`);
+  } else {
+    lines.push("  • มอเตอร์: 5 ปี / 30,000 กม.");
+    lines.push("  • แบตเตอรี่คอนโทรลเลอร์: 3 ปี / 20,000 กม.");
+    lines.push("  • ระบบไฟฟ้า: 1 ปี / 10,000 กม.");
+  }
   lines.push("");
   lines.push("📞 สนใจสั่งซื้อหรือนัดทดลองขับได้เลยครับ");
   lines.push(biz.orderChannelsText);
@@ -429,8 +426,8 @@ function buildEMCatalogResponse(products: Product[], biz: BusinessConfig): strin
     let specs = "";
     if (specLine) {
       const motor = specLine.match(/Motor:\s*(\d+W)/)?.[1] || "";
-      const range = specLine.match(/Range:\s*(\d+)\s*km/)?.[1] || "";
-      const speed = specLine.match(/Top Speed:\s*(\d+)\s*km\/h/)?.[1] || "";
+      const range = specLine.match(/Range:\s*([\d\-]+)\s*km/)?.[1] || "";
+      const speed = specLine.match(/Top Speed:\s*([\d\-]+)\s*km\/h/)?.[1] || "";
       if (motor && range && speed) {
         specs = ` (มอเตอร์ ${motor}, วิ่ง ${range} กม./ชาร์จ, เร็วสุด ${speed} กม./ชม.)`;
       }
@@ -957,7 +954,7 @@ export function generatePipelineResponseWithTrace(
           intentResponse = `แบตเตอรี่ LiFePO4 สำหรับรถ EV ยอดนิยมครับ\n\n${list}\n\nบอกรุ่นรถที่ใช้อยู่ผมจะแจ้งรุ่นที่เข้ากันได้เลยครับ!`;
         } else {
           // No clear context — ask what they're looking for
-          intentResponse = `ยินดีช่วยแนะนำครับ! EV Life Thailand มีสินค้าสองกลุ่มหลักครับ\n\n**1. มอเตอร์ไซค์ไฟฟ้า EM** (39,900 – 87,200 บาท)\n- EM Legend G.2 — 39,900 บาท (คุ้มค่าที่สุด)\n- EM Legend Pro — 49,900 บาท\n- EM Milano — 59,900 บาท\n- EM Owen Long Range — 87,200 บาท\n\n**2. แบตเตอรี่ 12V LiFePO4** สำหรับรถยนต์ไฟฟ้า (4,900 – 7,500 บาท)\n- รองรับ BYD, Tesla, MG, Neta, Volvo, BMW, Mercedes ฯลฯ\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
+          intentResponse = `ยินดีช่วยแนะนำครับ! EV Life Thailand มีสินค้าสองกลุ่มหลักครับ\n\n**1. มอเตอร์ไซค์ไฟฟ้า EM** (38,900 – 87,200 บาท)\n- EM Qarez — 38,900 บาท\n- EM Legend — 39,900 บาท\n- EM Legend Pro — 49,900 บาท\n- EM Enzo — 58,900 บาท\n- EM Milano — 59,900 บาท\n- EM Owen Long Range — 87,200 บาท\n\n**2. แบตเตอรี่ 12V LiFePO4** สำหรับรถยนต์ไฟฟ้า (4,900 – 7,500 บาท)\n- รองรับ BYD, Tesla, MG, Neta, Volvo, BMW, Mercedes ฯลฯ\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
         }
         break;
       }
