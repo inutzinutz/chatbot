@@ -650,6 +650,28 @@ export function generatePipelineResponseWithTrace(
     });
   };
 
+  // ── OFF-HOURS CHECK (evlifethailand only) ──
+  // Runs before all layers — if outside business hours, append a soft notice
+  // but still allow the bot to answer (non-blocking).
+  let offHoursSuffix = "";
+  let suppressSuffix = false;
+  if (biz.id === "evlifethailand") {
+    try {
+      // Dynamic import guard: this module is only used server-side
+      const { isWithinBusinessHours, buildOffHoursMessage } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require("@/lib/evlife/channels") as {
+          isWithinBusinessHours: () => boolean;
+          buildOffHoursMessage: () => string;
+        };
+      if (!isWithinBusinessHours()) {
+        offHoursSuffix = "\n\n---\n" + buildOffHoursMessage();
+      }
+    } catch {
+      // Ignore — channels module unavailable in edge runtime; webhook handles separately
+    }
+  }
+
   // ── LAYER 0: Conversation Context Extraction ──
   let t = now();
   const ctx = extractConversationContext(allMessages, userMessage, biz);
@@ -667,6 +689,7 @@ export function generatePipelineResponseWithTrace(
     });
     finalLayer = 1;
     finalLayerName = "Safety: Admin Escalation";
+    suppressSuffix = true; // admin escalation ไม่ต้องแจ้งนอกเวลา
     const escalationResult = finishTrace(biz.buildAdminEscalationResponse());
     escalationResult.isAdminEscalation = true;
     return escalationResult;
@@ -765,6 +788,7 @@ export function generatePipelineResponseWithTrace(
     switch (intent.id) {
       case "cancel_escalation": {
         // Signal to the webhook: re-enable bot + unpin, then reply normally
+        suppressSuffix = true; // cancel escalation ไม่ต้องแจ้งนอกเวลา
         const cancelResult = finishTrace(intent.responseTemplate);
         cancelResult.isCancelEscalation = true;
         cancelResult.clarifyOptions = ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
@@ -1237,6 +1261,6 @@ export function generatePipelineResponseWithTrace(
       timestamp: new Date().toISOString(),
     };
 
-    return { content, trace };
+    return { content: content + (suppressSuffix ? "" : offHoursSuffix), trace };
   }
 }
