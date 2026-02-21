@@ -23,7 +23,7 @@ import {
   Battery,
   Plane,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 export type PageId =
@@ -87,10 +87,23 @@ const NAV_SECTIONS = [
 export default function Sidebar({ activePage, onNavigate, businessId, onBusinessChange }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [bizMenuOpen, setBizMenuOpen] = useState(false);
+  const bizMenuRef = useRef<HTMLDivElement>(null);
 
   const currentBiz = businessUnitList.find((b) => b.id === businessId) ?? businessUnitList[0];
 
   const BizIcon = currentBiz.icon === "battery" ? Battery : Plane;
+
+  // Close business switcher dropdown on outside click
+  useEffect(() => {
+    if (!bizMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (bizMenuRef.current && !bizMenuRef.current.contains(e.target as Node)) {
+        setBizMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [bizMenuOpen]);
 
   return (
     <nav
@@ -100,7 +113,7 @@ export default function Sidebar({ activePage, onNavigate, businessId, onBusiness
       )}
     >
       {/* Business Switcher Header */}
-      <div className="relative border-b border-gray-100">
+      <div ref={bizMenuRef} className="relative border-b border-gray-100">
         <button
           onClick={() => !collapsed && setBizMenuOpen(!bizMenuOpen)}
           className={cn(

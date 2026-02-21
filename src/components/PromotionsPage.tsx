@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -29,52 +30,100 @@ interface Promotion {
   active: boolean;
 }
 
-const initialPromotions: Promotion[] = [
-  {
-    id: 1,
-    title: "DJI Mini 4 Pro ลด 10%",
-    description: "ลดราคา 10% สำหรับ DJI Mini 4 Pro ทุกแพ็กเกจ",
-    discountType: "percent",
-    discountValue: "10",
-    conditions: "ไม่สามารถใช้ร่วมกับโปรโมชั่นอื่นได้",
-    startDate: "2026-01-01",
-    endDate: "2026-03-31",
-    active: true,
-  },
-  {
-    id: 2,
-    title: "DJI Avata 2 แถม DJI Care Refresh",
-    description: "ซื้อ DJI Avata 2 Fly More Combo แถม DJI Care Refresh 1 ปี",
-    discountType: "freebie",
-    discountValue: "DJI Care Refresh 1 Year",
-    conditions: "เฉพาะ Fly More Combo เท่านั้น",
-    startDate: "2026-01-15",
-    endDate: "2026-02-28",
-    active: true,
-  },
-  {
-    id: 3,
-    title: "ผ่อน 0% สูงสุด 10 เดือน",
-    description: "ผ่อน 0% สำหรับบัตรเครดิตที่ร่วมรายการ ทุกรุ่น",
-    discountType: "percent",
-    discountValue: "0% installment",
-    conditions: "เฉพาะบัตรเครดิต SCB, KBANK, KTC, BAY",
-    startDate: "2026-01-01",
-    endDate: "2026-12-31",
-    active: true,
-  },
-  {
-    id: 4,
-    title: "ส่งฟรีทั่วประเทศ",
-    description: "จัดส่งฟรีทุกรายการสินค้า DJI ทั่วประเทศไทย",
-    discountType: "fixed",
-    discountValue: "Free shipping",
-    conditions: "ไม่มีขั้นต่ำ",
-    startDate: "2026-01-01",
-    endDate: "2026-12-31",
-    active: true,
-  },
-];
+const SEED_PROMOTIONS: Record<string, Promotion[]> = {
+  dji13store: [
+    {
+      id: 1,
+      title: "DJI Mini 4 Pro ลด 10%",
+      description: "ลดราคา 10% สำหรับ DJI Mini 4 Pro ทุกแพ็กเกจ",
+      discountType: "percent",
+      discountValue: "10",
+      conditions: "ไม่สามารถใช้ร่วมกับโปรโมชั่นอื่นได้",
+      startDate: "2026-01-01",
+      endDate: "2026-03-31",
+      active: true,
+    },
+    {
+      id: 2,
+      title: "DJI Avata 2 แถม DJI Care Refresh",
+      description: "ซื้อ DJI Avata 2 Fly More Combo แถม DJI Care Refresh 1 ปี",
+      discountType: "freebie",
+      discountValue: "DJI Care Refresh 1 Year",
+      conditions: "เฉพาะ Fly More Combo เท่านั้น",
+      startDate: "2026-01-15",
+      endDate: "2026-02-28",
+      active: true,
+    },
+    {
+      id: 3,
+      title: "ผ่อน 0% สูงสุด 10 เดือน",
+      description: "ผ่อน 0% สำหรับบัตรเครดิตที่ร่วมรายการ ทุกรุ่น",
+      discountType: "percent",
+      discountValue: "0% installment",
+      conditions: "เฉพาะบัตรเครดิต SCB, KBANK, KTC, BAY",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+      active: true,
+    },
+    {
+      id: 4,
+      title: "ส่งฟรีทั่วประเทศ",
+      description: "จัดส่งฟรีทุกรายการสินค้า DJI ทั่วประเทศไทย",
+      discountType: "fixed",
+      discountValue: "Free shipping",
+      conditions: "ไม่มีขั้นต่ำ",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+      active: true,
+    },
+  ],
+  evlifethailand: [
+    {
+      id: 1,
+      title: "แบตเตอรี่ LiFePO4 ลด 500 บาท",
+      description: "ลดทันที 500 บาท สำหรับแบตเตอรี่ LiFePO4 12V ทุกรุ่นรถ",
+      discountType: "fixed",
+      discountValue: "500",
+      conditions: "ไม่สามารถใช้ร่วมกับโปรโมชั่นอื่นได้",
+      startDate: "2026-01-01",
+      endDate: "2026-03-31",
+      active: true,
+    },
+    {
+      id: 2,
+      title: "EM Milano แถมหมวกกันน็อค",
+      description: "ซื้อ EM Milano แถมหมวกกันน็อคฟรี 1 ใบ มูลค่า 1,500 บาท",
+      discountType: "freebie",
+      discountValue: "หมวกกันน็อค 1 ใบ",
+      conditions: "เฉพาะรุ่น Milano เท่านั้น",
+      startDate: "2026-01-15",
+      endDate: "2026-02-28",
+      active: true,
+    },
+    {
+      id: 3,
+      title: "ผ่อน 0% สูงสุด 6 เดือน",
+      description: "ผ่อน 0% สำหรับมอเตอร์ไซค์ไฟฟ้า EM ทุกรุ่น",
+      discountType: "percent",
+      discountValue: "0% installment",
+      conditions: "เฉพาะบัตรเครดิตที่ร่วมรายการ",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+      active: true,
+    },
+    {
+      id: 4,
+      title: "บริการ On-site ฟรี กรุงเทพฯ-ปริมณฑล",
+      description: "บริการเปลี่ยนแบตเตอรี่ถึงบ้านฟรี ไม่มีค่าเดินทาง",
+      discountType: "fixed",
+      discountValue: "Free on-site",
+      conditions: "เฉพาะพื้นที่กรุงเทพฯ และปริมณฑล",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+      active: true,
+    },
+  ],
+};
 
 function PromoModal({
   promo,
@@ -163,8 +212,9 @@ function PromoModal({
   );
 }
 
-export default function PromotionsPage() {
-  const [items, setItems] = useLocalStorage<Promotion[]>("dji13_promotions", [...initialPromotions]);
+export default function PromotionsPage({ businessId }: { businessId: string }) {
+  const seed = SEED_PROMOTIONS[businessId] || SEED_PROMOTIONS.dji13store;
+  const [items, setItems] = useLocalStorage<Promotion[]>(`${businessId}_promotions`, [...seed]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Promotion | null | "new">(null);
   const [deleting, setDeleting] = useState<Promotion | null>(null);

@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { faqData as initialFAQ, type FAQItem } from "@/lib/faq";
+import { type FAQItem } from "@/lib/faq";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -86,10 +87,11 @@ function QRModal({
   );
 }
 
-export default function QuickRepliesPage() {
+export default function QuickRepliesPage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
   const [items, setItems] = useLocalStorage<QuickReplyItem[]>(
-    "dji13_quick_replies",
-    initialFAQ.map((f, i) => ({ ...f, id: i + 1 }))
+    `${businessId}_quick_replies`,
+    config.faqData.map((f, i) => ({ ...f, id: i + 1 }))
   );
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { getBusinessConfig } from "@/lib/businessUnits";
 import {
   Search,
   Plus,
@@ -26,44 +27,84 @@ interface ShippingRule {
   active: boolean;
 }
 
-const initialRules: ShippingRule[] = [
-  {
-    id: 1,
-    zone: "กรุงเทพและปริมณฑล",
-    description: "จัดส่งด่วนภายใน 1-2 วันทำการ",
-    fee: 0,
-    freeAbove: null,
-    estimatedDays: "1-2 วันทำการ",
-    active: true,
-  },
-  {
-    id: 2,
-    zone: "ต่างจังหวัด",
-    description: "จัดส่งทั่วประเทศ ส่งฟรีสำหรับสินค้า DJI ทุกรายการ",
-    fee: 0,
-    freeAbove: null,
-    estimatedDays: "2-4 วันทำการ",
-    active: true,
-  },
-  {
-    id: 3,
-    zone: "จัดส่งด่วน (Express)",
-    description: "บริการจัดส่งด่วนพิเศษ ถึงภายใน 1 วัน",
-    fee: 100,
-    freeAbove: 10000,
-    estimatedDays: "1 วันทำการ",
-    active: true,
-  },
-  {
-    id: 4,
-    zone: "ต่างประเทศ (International)",
-    description: "สำหรับลูกค้าต่างประเทศ กรุณาติดต่อ LINE @dji13store",
-    fee: 0,
-    freeAbove: null,
-    estimatedDays: "ติดต่อสอบถาม",
-    active: false,
-  },
-];
+const SEED_SHIPPING: Record<string, ShippingRule[]> = {
+  dji13store: [
+    {
+      id: 1,
+      zone: "กรุงเทพและปริมณฑล",
+      description: "จัดส่งด่วนภายใน 1-2 วันทำการ",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "1-2 วันทำการ",
+      active: true,
+    },
+    {
+      id: 2,
+      zone: "ต่างจังหวัด",
+      description: "จัดส่งทั่วประเทศ ส่งฟรีสำหรับสินค้า DJI ทุกรายการ",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "2-4 วันทำการ",
+      active: true,
+    },
+    {
+      id: 3,
+      zone: "จัดส่งด่วน (Express)",
+      description: "บริการจัดส่งด่วนพิเศษ ถึงภายใน 1 วัน",
+      fee: 100,
+      freeAbove: 10000,
+      estimatedDays: "1 วันทำการ",
+      active: true,
+    },
+    {
+      id: 4,
+      zone: "ต่างประเทศ (International)",
+      description: "สำหรับลูกค้าต่างประเทศ กรุณาติดต่อ LINE @dji13store",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "ติดต่อสอบถาม",
+      active: false,
+    },
+  ],
+  evlifethailand: [
+    {
+      id: 1,
+      zone: "กรุงเทพและปริมณฑล (On-site)",
+      description: "บริการ On-site ติดตั้งถึงบ้าน ฟรีค่าเดินทาง",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "นัดหมายล่วงหน้า 1-2 วัน",
+      active: true,
+    },
+    {
+      id: 2,
+      zone: "กรุงเทพและปริมณฑล (จัดส่ง)",
+      description: "จัดส่งด่วนภายใน 1-2 วันทำการ",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "1-2 วันทำการ",
+      active: true,
+    },
+    {
+      id: 3,
+      zone: "ต่างจังหวัด",
+      description: "จัดส่งทั่วประเทศ ฟรีสำหรับแบตเตอรี่และมอเตอร์ไซค์",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "2-5 วันทำการ",
+      active: true,
+    },
+    {
+      id: 4,
+      zone: "ต่างจังหวัด (On-site)",
+      description: "บริการ On-site ต่างจังหวัด มีค่าเดินทางตามระยะทาง",
+      fee: 500,
+      freeAbove: 5000,
+      estimatedDays: "นัดหมายล่วงหน้า 3-5 วัน",
+      active: true,
+    },
+  ],
+};
 
 function RuleModal({
   rule,
@@ -138,8 +179,9 @@ function RuleModal({
   );
 }
 
-export default function ShippingPage() {
-  const [items, setItems] = useLocalStorage<ShippingRule[]>("dji13_shipping", [...initialRules]);
+export default function ShippingPage({ businessId }: { businessId: string }) {
+  const seed = SEED_SHIPPING[businessId] || SEED_SHIPPING.dji13store;
+  const [items, setItems] = useLocalStorage<ShippingRule[]>(`${businessId}_shipping`, [...seed]);
   const [editing, setEditing] = useState<ShippingRule | null | "new">(null);
   const [deleting, setDeleting] = useState<ShippingRule | null>(null);
 

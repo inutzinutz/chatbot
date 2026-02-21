@@ -19,9 +19,10 @@ import {
   ExternalLink,
   Zap,
 } from "lucide-react";
-import { DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+import { DEFAULT_BUSINESS_ID, getBusinessConfig } from "@/lib/businessUnits";
 
-function SettingsPage() {
+function SettingsPage({ businessId }: { businessId: string }) {
+  const config = getBusinessConfig(businessId);
   return (
     <div className="flex-1 overflow-y-auto bg-gray-50/50 p-6">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -41,11 +42,11 @@ function SettingsPage() {
             </h3>
           </div>
           <p className="text-xs text-gray-500">
-            Add this script to any website to embed the DJI 13 STORE chatbot
+            Add this script to any website to embed the {config.name} chatbot
             widget.
           </p>
           <div className="rounded-lg bg-gray-900 p-4 text-xs text-green-400 font-mono overflow-x-auto">
-            <pre>{`<script\n  src="${typeof window !== "undefined" ? window.location.origin : ""}/widget.js"\n  data-key="script_4x9xsyeyuk8"\n  data-droid-id="202"\n></script>`}</pre>
+            <pre>{`<script\n  src="${typeof window !== "undefined" ? window.location.origin : ""}/widget.js"\n  data-key="${businessId}"\n  data-droid-id="${businessId}"\n></script>`}</pre>
           </div>
         </div>
 
@@ -141,7 +142,7 @@ export default function Home() {
       case "channels":
         return <ChannelsPage key={businessId} businessId={businessId} />;
       case "settings":
-        return <SettingsPage />;
+        return <SettingsPage businessId={businessId} />;
       case "products":
         return <ProductsPage key={businessId} businessId={businessId} />;
       case "sale-scripts":
@@ -151,11 +152,11 @@ export default function Home() {
       case "intents":
         return <IntentsPage key={businessId} businessId={businessId} />;
       case "promotions":
-        return <PromotionsPage />;
+        return <PromotionsPage key={businessId} businessId={businessId} />;
       case "quick-replies":
-        return <QuickRepliesPage />;
+        return <QuickRepliesPage key={businessId} businessId={businessId} />;
       case "shipping":
-        return <ShippingPage />;
+        return <ShippingPage key={businessId} businessId={businessId} />;
       case "ai-inspector":
         return <AIInspector />;
       case "ai-testing":
