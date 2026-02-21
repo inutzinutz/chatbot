@@ -234,7 +234,7 @@ const evlifeConfig: BusinessConfig = {
   systemPromptIdentity: `คุณคือ "EV Life Thailand Assistant" ผู้ช่วย AI ของ EV Life Thailand ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 12V สำหรับรถยนต์ไฟฟ้า EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM อย่างเป็นทางการ บน DroidMind
 ตอบภาษาไทยเป็นหลัก ตอบภาษาอังกฤษได้ถ้าลูกค้าถามเป็นภาษาอังกฤษ`,
 
-  orderChannelsText: "- LINE: @evlifethailand (แนะนำ)\n- Facebook: EV Life Thailand\n- เว็บ: https://evlifethailand.co.th",
+  orderChannelsText: "- LINE: @evlifethailand (แนะนำ)\n- Facebook: EV Life Thailand\n- โทร: 094-905-6155\n- เว็บ: https://evlifethailand.co.th\n- หน้าร้าน: สาขาราชพฤกษ์ (Google Maps: https://maps.app.goo.gl/4zvmTZN843FrJTWr9)",
 
   defaultFallbackMessage:
     "ขอบคุณที่ติดต่อ **EV Life Thailand** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- ราคาและโปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลยครับ!",

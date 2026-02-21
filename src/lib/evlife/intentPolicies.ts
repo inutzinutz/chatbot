@@ -113,7 +113,7 @@ export function buildContactChannelsResponse(): string {
     "ได้เลยครับ ผมขอแชร์ช่องทางติดต่ออย่างเป็นทางการของ EV Life Thailand ครับ\n\n" +
     "แบตเตอรี่ EV & บริการ On-site\n" +
     "- LINE: @evlifethailand\n" +
-    "- โทร: 09x-xxx-xxxx\n" +
+    "- โทร: 094-905-6155\n" +
     "- เว็บไซต์: https://evlifethailand.co.th\n\n" +
     "มอเตอร์ไซค์ไฟฟ้า EM\n" +
     "- LINE: @evlifethailand\n" +
@@ -195,7 +195,7 @@ export const intents: Intent[] = [
     description: "ลูกค้าสอบถามเรื่องการซ่อม การเคลม หรือปัญหาทางเทคนิค",
     triggers: ["ซ่อม", "repair", "เคลม", "claim", "เสีย", "broken", "ปัญหา", "problem", "issue", "ไม่ทำงาน", "not working", "บริการหลังการขาย"],
     policy: "แนะนำให้ติดต่อทีม Support โดยตรง ห้ามรับปากว่าจะซ่อมหรือเคลมได้",
-    responseTemplate: "สำหรับการซ่อม/เคลมสินค้า กรุณาติดต่อทีมงานโดยตรงครับ\n\n**EV Life Thailand Support**\n- LINE: @evlifethailand\n- โทร: 09x-xxx-xxxx\n- เว็บ: https://evlifethailand.co.th\n\nทีมงานจะช่วยดูแลให้ครับ",
+    responseTemplate: "สำหรับการซ่อม/เคลมสินค้า กรุณาติดต่อทีมงานโดยตรงครับ\n\n**EV Life Thailand Support**\n- LINE: @evlifethailand\n- โทร: 094-905-6155\n- เว็บ: https://evlifethailand.co.th\n\nทีมงานจะช่วยดูแลให้ครับ",
     active: true,
   },
   {
@@ -225,7 +225,7 @@ export const intents: Intent[] = [
     description: "ลูกค้าสอบถามช่องทางติดต่อร้าน",
     triggers: ["ติดต่อ", "contact", "line", "ไลน์", "เบอร์โทร", "โทรศัพท์", "phone", "email", "อีเมล", "ช่องทาง", "facebook"],
     policy: "ให้ข้อมูลช่องทางติดต่ออย่างเป็นทางการเท่านั้น",
-    responseTemplate: "ช่องทางติดต่ออย่างเป็นทางการของ EV Life Thailand ครับ\n\n**LINE OA**: @evlifethailand\n**Facebook**: EV Life Thailand\n**เว็บไซต์**: https://evlifethailand.co.th\n**โทร**: 09x-xxx-xxxx\n**เวลาทำการ**: จันทร์-เสาร์ 9:00-18:00 น.",
+    responseTemplate: "ช่องทางติดต่ออย่างเป็นทางการของ EV Life Thailand ครับ\n\n**LINE OA**: @evlifethailand\n**Facebook**: EV Life Thailand\n**เว็บไซต์**: https://evlifethailand.co.th\n**โทร**: 094-905-6155\n**เวลาทำการ**: จันทร์-เสาร์ 9:00-18:00 น.",
     active: true,
   },
   {
@@ -336,6 +336,16 @@ export const intents: Intent[] = [
     triggers: ["ผ่อน", "installment", "ผ่อนได้ไหม", "ผ่อนชำระ", "บัตรเครดิต", "credit card", "0%", "ดอกเบี้ย", "interest", "งวด", "monthly", "ชำระ", "payment method"],
     policy: "ให้ข้อมูลวิธีการชำระเงินที่รองรับ ห้ามส่ง payment link",
     responseTemplate: "วิธีการชำระเงิน EV Life Thailand ครับ\n\n**แบตเตอรี่ 12V**\n- โอนเงิน / พร้อมเพย์\n- เงินสด (กรณี On-site)\n\n**มอเตอร์ไซค์ EM**\n- โอนเงิน / เงินสด\n- บัตรเครดิต\n- ผ่อน 0% (เงื่อนไขตามธนาคาร)\n\nร้านไม่มีการส่ง payment link ทาง chat\n\nสอบถามเพิ่มเติม LINE: @evlifethailand ครับ",
+    active: true,
+  },
+  {
+    id: "store_location_hours",
+    number: 20,
+    name: "Store Location / Working Hours",
+    description: "ลูกค้าสอบถามที่ตั้งร้านหรือเวลาทำการ",
+    triggers: ["ที่อยู่", "address", "ร้านอยู่ที่ไหน", "location", "เวลาทำการ", "เปิดกี่โมง", "ปิดกี่โมง", "working hours", "open", "close", "สาขา", "branch", "แผนที่", "map", "ร้านอยู่ไหน", "หน้าร้าน"],
+    policy: "ให้ข้อมูลที่ตั้งและเวลาทำการที่ถูกต้องเท่านั้น ห้ามให้ข้อมูลที่ไม่แน่ใจ",
+    responseTemplate: "ข้อมูลร้าน EV Life Thailand ครับ\n\n**สาขาราชพฤกษ์**\nหน้าร้านสาขาราชพฤกษ์\n\n**Google Maps**: https://maps.app.goo.gl/4zvmTZN843FrJTWr9\n\n**เวลาทำการ**: จันทร์-เสาร์ 9:00-18:00 น.\n\n**โทร**: 094-905-6155\n**LINE**: @evlifethailand",
     active: true,
   },
 ];

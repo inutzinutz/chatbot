@@ -17,7 +17,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "วิธีสั่งซื้อสินค้าและนัดเปลี่ยนแบตเตอรี่",
-    answer: "สามารถสั่งซื้อและนัดหมายได้ผ่านช่องทาง:\n- แชทผ่าน LINE: @evlifethailand\n- แชทผ่าน Facebook: EV Life Thailand\n- โทร: 09x-xxx-xxxx\n\nขั้นตอน:\n1. แจ้งรุ่นรถ EV ที่ใช้งาน\n2. เลือกสินค้า/บริการที่ต้องการ\n3. นัดวัน-เวลา สำหรับบริการ On-site\n4. ชำระเงิน\n5. ช่างเดินทางไปเปลี่ยนถึงที่",
+    answer: "สามารถสั่งซื้อและนัดหมายได้ผ่านช่องทาง:\n- แชทผ่าน LINE: @evlifethailand\n- แชทผ่าน Facebook: EV Life Thailand\n- โทร: 094-905-6155\n\nขั้นตอน:\n1. แจ้งรุ่นรถ EV ที่ใช้งาน\n2. เลือกสินค้า/บริการที่ต้องการ\n3. นัดวัน-เวลา สำหรับบริการ On-site\n4. ชำระเงิน\n5. ช่างเดินทางไปเปลี่ยนถึงที่",
     category: "การสั่งซื้อ",
   },
   {
@@ -52,7 +52,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "ติดต่อ EV Life Thailand",
-    answer: "- LINE Official: @evlifethailand\n- Facebook: EV Life Thailand\n- เว็บไซต์: https://evlifethailand.co.th\n- โทร: 09x-xxx-xxxx\n- เวลาทำการ: จันทร์-เสาร์ 9:00-18:00 น.",
+    answer: "- LINE Official: @evlifethailand\n- Facebook: EV Life Thailand\n- เว็บไซต์: https://evlifethailand.co.th\n- โทร: 094-905-6155\n- เวลาทำการ: จันทร์-เสาร์ 9:00-18:00 น.",
     category: "ติดต่อเรา",
   },
   {
