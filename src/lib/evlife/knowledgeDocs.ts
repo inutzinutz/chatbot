@@ -89,7 +89,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     ],
     tags: ["promotion", "february", "motorcycle", "EM"],
     content:
-      "โปรโมชั่นพิเศษเดือนกุมภาพันธ์ 2568 — ทุกรุ่น!\n\nสิทธิพิเศษที่ได้รับ:\n- ฟรี จดทะเบียน\n- ฟรี พ.ร.บ.\n- ฟรี ประกันรถหาย 1 ปี (เฉพาะไฟแนนซ์)\n- ฟรี บริการจัดส่งในกรุงเทพฯ และปริมณฑล\n- ฟรี จัดไฟแนนซ์ถึงหน้าบ้าน หรือที่ทำงาน\n\nของแถมพิเศษ:\n- หมวกกันน็อค\n- กระเป๋าเกะหน้า (เฉพาะ Legend Pro)\n- ถุงมือขับรถ\n- กรอบป้ายทะเบียน\n- เสื้อคลุมผ้าร่ม\n\nราคา:\n- Legend G.2 — 39,900 บาท\n- Legend Pro — 49,900 บาท\n- Owen LR — 87,200 บาท\n- Milano — 59,900 บาท (พรีออเดอร์)\n\nสนใจสอบถาม LINE: @evlifethailand | โทร: 094-905-6155",
+      "โปรโมชั่นพิเศษเดือนกุมภาพันธ์ 2568 — ทุกรุ่น!\n\nสิทธิพิเศษที่ได้รับ:\n- ฟรี จดทะเบียน\n- ฟรี พ.ร.บ.\n- ฟรี ประกันรถหาย 1 ปี (เฉพาะไฟแนนซ์)\n- ฟรี บริการจัดส่งในกรุงเทพฯ และปริมณฑล\n- ฟรี จัดไฟแนนซ์ถึงหน้าบ้าน หรือที่ทำงาน\n\nของแถมพิเศษ:\n- หมวกกันน็อค\n- กระเป๋าเกะหน้า (เฉพาะ Legend Pro)\n- ถุงมือขับรถ\n- กรอบป้ายทะเบียน\n- เสื้อคลุมผ้าร่ม\n\nราคา:\n- Qarez — 38,900 บาท\n- Legend — 39,900 บาท\n- Legend Pro — 49,900 บาท\n- Enzo — 58,900 บาท\n- Milano — 59,900 บาท\n- Owen LR — 87,200 บาท\n\nสนใจสอบถาม LINE: @evlifethailand | โทร: 094-905-6155",
   },
 
   // 5. Battery compatibility by year (specific before generic battery info)
@@ -298,10 +298,10 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     id: 121,
     title: "เปรียบเทียบมอเตอร์ไซค์ไฟฟ้า EM ทุกรุ่น — เลือกรุ่นไหนดี",
     triggers: [
-      "legend g.2 vs", "legend pro vs", "vs legend", "legend กับ",
-      "g.2 กับ pro", "pro กับ g.2", "รุ่นไหนดีกว่า", "เลือกรุ่นไหน",
+      "legend vs", "legend pro vs", "vs legend", "legend กับ",
+      "legend กับ pro", "pro กับ legend", "รุ่นไหนดีกว่า", "เลือกรุ่นไหน",
       "legend pro หรือ", "milano กับ", "owen กับ", "คันไหนดี",
-      "g.2 ดีไหม", "pro ดีไหม", "ต่างกันยังไง", "เปรียบรุ่น",
+      "legend ดีไหม", "pro ดีไหม", "ต่างกันยังไง", "เปรียบรุ่น",
     ],
     tags: ["comparison", "motorcycle", "EM", "recommendation"],
     content:
@@ -458,7 +458,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     tags: ["color", "motorcycle", "EM"],
     content:
       "สีที่มีจำหน่ายในแต่ละรุ่น มอเตอร์ไซค์ไฟฟ้า EM\n\n" +
-      "EM Legend (G.2) — 39,900 บาท\n" +
+      "EM Legend — 39,900 บาท\n" +
       "- ขาว, น้ำเงิน, เทา, น้ำตาล, เขียวเข้ม, มิ้นต์\n\n" +
       "EM Legend Pro — 49,900 บาท\n" +
       "- Retro White (ขาวครีม), Ultima Grey (เทา), All Black (ดำ), Green Hunter (เขียว)\n\n" +
@@ -483,7 +483,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     tags: ["specs", "motorcycle", "EM", "weight", "payload"],
     content:
       "สเปคเชิงลึกมอเตอร์ไซค์ไฟฟ้า EM\n\n" +
-      "EM Legend (G.2)\n" +
+      "EM Legend\n" +
       "- น้ำหนักรถ: 64 กก. | รับน้ำหนักได้: 150 กก. | ล้อ: 10 นิ้ว\n" +
       "- มิติ (กว้าง x ยาว x สูง): 750 x 1,740 x 1,145 มม.\n\n" +
       "EM Legend Pro\n" +
@@ -603,8 +603,6 @@ export const knowledgeDocs: KnowledgeDoc[] = [
       "em ราคา",
       "milano ราคา",
       "legend ราคา",
-      "legend g.2 ราคา",
-      "g.2 ราคา",
       "owen ราคา",
       "enzo ราคา",
       "qarez ราคา",
