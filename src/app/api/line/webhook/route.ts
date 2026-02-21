@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBusinessConfig } from "@/lib/businessUnits";
+import {
+  generatePipelineResponseWithTrace,
+  buildSystemPrompt,
+  type ChatMessage,
+} from "@/lib/pipeline";
 
 export const runtime = "edge";
 
@@ -85,62 +91,99 @@ async function replyToLine(
   });
 }
 
-// ── Collect full text from SSE stream ──
-
-async function collectStreamedText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") break;
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.content) {
-            result += parsed.content;
-          }
-        } catch {
-          // skip non-JSON (trace events, etc.)
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  return result;
-}
-
 // ── Strip markdown for LINE plain-text ──
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "$1") // bold → plain
+    .replace(/\*\*(.+?)\*\*/g, "$1") // bold -> plain
     .replace(/__(.+?)__/g, "$1") // bold alt
     .replace(/\*(.+?)\*/g, "$1") // italic
     .replace(/_(.+?)_/g, "$1") // italic alt
     .replace(/~~(.+?)~~/g, "$1") // strikethrough
     .replace(/`(.+?)`/g, "$1") // inline code
-    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // links → text only
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // links -> text only
     .replace(/^#{1,6}\s+/gm, "") // headings
-    .replace(/^[-*]\s+/gm, "• ") // list items → bullet
+    .replace(/^[-*]\s+/gm, "• ") // list items -> bullet
     .replace(/^\d+\.\s+/gm, "") // numbered list (keep number via text)
     .trim();
+}
+
+// ── GPT fallback for LINE (non-streaming) ──
+
+async function callGptFallback(
+  userMessage: string,
+  systemPrompt: string
+): Promise<string | null> {
+  const messages: { role: string; content: string }[] = [
+    { role: "user", content: userMessage },
+  ];
+
+  // Priority 1: Anthropic Claude (non-streaming for LINE)
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages,
+          stream: false,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.content?.[0]?.text;
+        if (text) return text;
+      }
+    } catch (err) {
+      console.error("[LINE webhook] Claude API error:", err);
+    }
+  }
+
+  // Priority 2: OpenAI (non-streaming for LINE)
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    try {
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...messages,
+            ],
+            temperature: 0.7,
+            max_tokens: 1000,
+            stream: false,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        if (text) return text;
+      }
+    } catch (err) {
+      console.error("[LINE webhook] OpenAI API error:", err);
+    }
+  }
+
+  return null;
 }
 
 // ── LINE event types ──
@@ -208,8 +251,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "ok" });
   }
 
-  // Build internal chat API URL
-  const chatUrl = new URL("/api/chat", req.url);
+  // Get business config for pipeline
+  const biz = getBusinessConfig(businessId);
 
   // Process each event
   for (const event of events) {
@@ -221,26 +264,24 @@ export async function POST(req: NextRequest) {
     if (!userText || !replyToken) continue;
 
     try {
-      // Call our chat pipeline internally
-      const chatResponse = await fetch(chatUrl.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: userText }],
-          businessId,
-        }),
-      });
+      // Run pipeline directly (no HTTP self-fetch)
+      const chatMessages: ChatMessage[] = [
+        { role: "user", content: userText },
+      ];
+
+      const { content: pipelineContent, trace: pipelineTrace } =
+        generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
       let replyText = "";
 
-      const contentType = chatResponse.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        // Pipeline resolved (layers 0-14) or fallback JSON
-        const data = await chatResponse.json();
-        replyText = data.content || "";
-      } else if (contentType.includes("text/event-stream")) {
-        // Claude/OpenAI streamed response — collect all chunks
-        replyText = await collectStreamedText(chatResponse);
+      if (pipelineTrace.finalLayer < 14) {
+        // Pipeline resolved (layers 0-13) — use pipeline result
+        replyText = pipelineContent;
+      } else {
+        // Layer 14: Default fallback — try GPT as last resort
+        const systemPrompt = buildSystemPrompt(biz);
+        const gptResponse = await callGptFallback(userText, systemPrompt);
+        replyText = gptResponse || pipelineContent;
       }
 
       if (!replyText) {
