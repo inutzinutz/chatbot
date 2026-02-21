@@ -265,7 +265,7 @@ const evlifeConfig: BusinessConfig = {
   orderChannelsText: "- LINE: @evlifethailand (แนะนำ)\n- Facebook: EV Life Thailand\n- โทร: 094-905-6155\n- เว็บ: https://evlifethailand.co.th\n- หน้าร้าน: สาขาราชพฤกษ์ (Google Maps: https://maps.app.goo.gl/4zvmTZN843FrJTWr9)",
 
   defaultFallbackMessage:
-    "ขอบคุณที่ติดต่อ **EV Life Thailand** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- ราคาและโปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลยครับ!",
+    "ขอบคุณที่ติดต่อ **EV Life Thailand** ครับ!\n\nวันนี้สนใจเรื่องไหนครับ?\n1. แบตเตอรี่ 12V LiFePO4 สำหรับรถยนต์ไฟฟ้า (BYD, Tesla, MG ฯลฯ)\n2. มอเตอร์ไซค์ไฟฟ้า EM (Legend, Milano, Owen)\n\nพิมพ์ 1 หรือ 2 หรือถามได้เลยครับ!",
 
   categoryChecks: [
     { keys: ["แบตเตอรี่", "แบต", "battery", "lifepo4", "12v"], category: "แบตเตอรี่ EV", label: "แบตเตอรี่ LiFePO4" },
@@ -277,7 +277,7 @@ const evlifeConfig: BusinessConfig = {
 
   faqTerms: [
     // Motorcycle-specific topics MUST come BEFORE generic "ประกัน"/"warranty" to avoid battery FAQ hit
-    { keys: ["ประกัน มอเตอร์ไซค์", "ประกัน em", "ประกัน legend", "ประกัน milan", "ประกัน owen", "warranty em", "warranty มอไซค์", "รับประกัน มอไซค์", "รับประกัน em", "รับประกัน legend"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
+    { keys: ["ประกันมอเตอร์ไซค์", "ประกัน มอเตอร์ไซค์", "ประกัน em", "ประกัน legend", "ประกัน milan", "ประกัน owen", "warranty em", "warranty มอไซค์", "รับประกันมอไซค์", "รับประกัน มอไซค์", "รับประกัน em", "รับประกัน legend"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
     { keys: ["จดทะเบียน", "ทะเบียน", "พรบ"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
     { keys: ["เปรียบเทียบ", "ต่างกัน", "compare", "vs"], topic: "มอเตอร์ไซค์ไฟฟ้า" },
     { keys: ["สั่งซื้อ", "สั่ง", "order", "buy", "ซื้อยังไง"], topic: "การสั่งซื้อ" },

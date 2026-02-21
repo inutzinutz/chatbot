@@ -758,9 +758,25 @@ export function generatePipelineResponseWithTrace(
     let intentResponse: string | null = null;
 
     switch (intent.id) {
-      case "greeting":
+      case "greeting": {
+        // Return template + clarifyOptions for web chat chip buttons
+        const greetResult = finishTrace(intent.responseTemplate);
+        greetResult.clarifyOptions = ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
+        addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = `Intent: ${intent.name}`;
+        finalIntent = intent.id;
+        return greetResult;
+      }
+      case "category_select_battery":
         intentResponse = intent.responseTemplate;
         break;
+      case "category_select_motorcycle": {
+        // Show full EM catalog with specs
+        const emCatProds = biz.getActiveProducts().filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+        intentResponse = emCatProds.length > 0 ? buildEMCatalogResponse(emCatProds, biz) : intent.responseTemplate;
+        break;
+      }
       case "contact_channels":
         intentResponse = biz.buildContactChannelsResponse();
         break;
@@ -779,7 +795,6 @@ export function generatePipelineResponseWithTrace(
       case "warranty_info":
       case "battery_symptom":
       case "support_inquiry":
-      case "store_location_hours":
         intentResponse = intent.responseTemplate;
         break;
       case "discontinued_model":
@@ -837,7 +852,24 @@ export function generatePipelineResponseWithTrace(
         }
 
         if (pool.length === 0) {
-          intentResponse = `ขออภัยครับ ไม่พบสินค้าในงบประมาณที่ระบุ\n\nสินค้าราคาเริ่มต้นของเราครับ:\n${biz.getCheapestProducts(3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}`;
+          if (isMotoContext && !isBatteryContext) {
+            // Budget too low for any EM — suggest cheapest EM + financing option
+            const cheapestEM = biz.getActiveProducts()
+              .filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM")
+              .sort((a, b) => a.price - b.price)[0];
+            if (cheapestEM) {
+              intentResponse =
+                `งบ ${budget ? budget.toLocaleString() + " บาท" : "ที่ระบุ"} อาจน้อยกว่ารุ่นที่มีจำหน่ายครับ\n\n` +
+                `รุ่นเริ่มต้นที่ถูกที่สุดของเราคือ **${cheapestEM.name}** — **${cheapestEM.price.toLocaleString()} บาท** ครับ\n\n` +
+                `💡 **ผ่อนได้ครับ!** ฟรีดาวน์ / ผ่อน 0% / ทุกอาชีพออกได้\n` +
+                `บริการจัดสัญญาถึงบ้าน/ที่ทำงาน ฟรี!\n\n` +
+                `สนใจดูรายละเอียดหรือคำนวณค่างวดไหมครับ?\nLINE: @evlifethailand | โทร: 094-905-6155`;
+            } else {
+              intentResponse = `ขออภัยครับ ไม่พบมอเตอร์ไซค์ในงบประมาณที่ระบุ\n\nติดต่อทีมงานเพื่อดูตัวเลือกการผ่อนครับ: LINE @evlifethailand`;
+            }
+          } else {
+            intentResponse = `ขออภัยครับ ไม่พบสินค้าในงบประมาณที่ระบุ\n\nสินค้าราคาเริ่มต้นของเราครับ:\n${biz.getCheapestProducts(3).filter((p) => p.category !== "แบตเตอรี่ EV" || isBatteryContext).slice(0, 3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n") || biz.getCheapestProducts(3).map((p) => `💰 **${p.name}** — ${p.price.toLocaleString()} บาท`).join("\n")}`;
+          }
         } else {
           const list = pool
             .slice(0, 5)
@@ -900,7 +932,29 @@ export function generatePipelineResponseWithTrace(
           .join("\n")}\n\nสนใจหมวดไหนครับ?`;
         break;
       }
-      case "ev_purchase":
+      case "ev_purchase": {
+        // Try to find a specific product mentioned — if found, respond with details
+        const allActive = biz.getActiveProducts();
+        const emProductsForPurchase = allActive.filter((p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM");
+        const specificEMPurchase = findSpecificProductInCategory(lower, emProductsForPurchase, "EM ");
+        if (specificEMPurchase) {
+          intentResponse = buildDetailedEMResponse(specificEMPurchase, biz);
+          intentDetails.matchedProducts = [specificEMPurchase.name];
+        } else {
+          // Try generic product search across all active products
+          const anySpecific = findSpecificProductInCategory(lower, allActive, "");
+          if (anySpecific) {
+            const isEM = anySpecific.category === "มอเตอร์ไซค์ไฟฟ้า EM";
+            intentResponse = isEM
+              ? buildDetailedEMResponse(anySpecific, biz)
+              : buildDetailedProductResponseGeneric(anySpecific, biz);
+            intentDetails.matchedProducts = [anySpecific.name];
+          } else {
+            intentResponse = null; // pass-through to Layer 7+ for sale scripts / product search
+          }
+        }
+        break;
+      }
       case "drone_purchase":
       case "product_details":
         intentResponse = null; // pass-through to next layers
