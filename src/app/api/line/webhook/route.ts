@@ -254,30 +254,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  console.log(`[LINE webhook] Events count: ${events.length}, types: ${events.map(e => `${e.type}/${e.message?.type || "n/a"}`).join(", ")}`);
-
   // Webhook verification request (empty events)
   if (events.length === 0) {
-    console.log(`[LINE webhook] Empty events (verify request)`);
+    console.log(JSON.stringify({ step: "verify", businessId, events: 0 }));
     return NextResponse.json({ status: "ok" });
   }
 
   // Get business config for pipeline
   const biz = getBusinessConfig(businessId);
 
-  // Process each event
+  // Process each event — collect all diagnostics into one log
+  const results: Record<string, unknown>[] = [];
+
   for (const event of events) {
-    console.log(`[LINE webhook] Event: type=${event.type}, messageType=${event.message?.type}, hasReplyToken=${!!event.replyToken}`);
+    const diag: Record<string, unknown> = {
+      eventType: event.type,
+      msgType: event.message?.type,
+      hasReplyToken: !!event.replyToken,
+    };
+
     // Only handle text messages
-    if (event.type !== "message" || event.message?.type !== "text") continue;
+    if (event.type !== "message" || event.message?.type !== "text") {
+      diag.skipped = true;
+      results.push(diag);
+      continue;
+    }
 
     const userText = event.message.text || "";
     const replyToken = event.replyToken;
-    if (!userText || !replyToken) continue;
+    if (!userText || !replyToken) {
+      diag.skipped = "no text or token";
+      results.push(diag);
+      continue;
+    }
+
+    diag.userText = userText;
+    diag.userId = event.source?.userId;
 
     try {
-      console.log(`[LINE webhook] Processing message: "${userText}" from user: ${event.source?.userId || "unknown"}`);
-
       // Run pipeline directly (no HTTP self-fetch)
       const chatMessages: ChatMessage[] = [
         { role: "user", content: userText },
@@ -286,20 +300,18 @@ export async function POST(req: NextRequest) {
       const { content: pipelineContent, trace: pipelineTrace } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
-      console.log(`[LINE webhook] Pipeline resolved at layer ${pipelineTrace.finalLayer}: ${pipelineTrace.finalLayerName}`);
+      diag.pipelineLayer = pipelineTrace.finalLayer;
+      diag.pipelineLayerName = pipelineTrace.finalLayerName;
 
       let replyText = "";
 
       if (pipelineTrace.finalLayer < 14) {
-        // Pipeline resolved (layers 0-13) — use pipeline result
         replyText = pipelineContent;
       } else {
-        // Layer 14: Default fallback — try GPT as last resort
-        console.log(`[LINE webhook] Layer 14 reached, trying GPT fallback...`);
         const systemPrompt = buildSystemPrompt(biz);
         const gptResponse = await callGptFallback(userText, systemPrompt);
         replyText = gptResponse || pipelineContent;
-        console.log(`[LINE webhook] GPT fallback result: ${gptResponse ? "success" : "no API key or failed, using pipeline default"}`);
+        diag.gptUsed = !!gptResponse;
       }
 
       if (!replyText) {
@@ -308,25 +320,56 @@ export async function POST(req: NextRequest) {
 
       // Strip markdown for plain-text LINE
       replyText = stripMarkdown(replyText);
+      diag.replyLength = replyText.length;
+      diag.replyPreview = replyText.slice(0, 80);
 
-      console.log(`[LINE webhook] Sending reply (${replyText.length} chars): "${replyText.slice(0, 100)}..."`);
-      await replyToLine(replyToken, replyText, accessToken);
-      console.log(`[LINE webhook] Reply sent successfully`);
+      // Send reply
+      const replyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          replyToken,
+          messages: [{ type: "text", text: replyText.length > 5000 ? replyText.slice(0, 4997) + "..." : replyText }],
+        }),
+      });
+
+      diag.replyApiStatus = replyRes.status;
+      if (!replyRes.ok) {
+        diag.replyApiError = await replyRes.text().catch(() => "");
+      } else {
+        diag.replyApiOk = true;
+      }
     } catch (err) {
-      console.error(`[LINE webhook] Error processing message:`, err);
+      diag.error = String(err);
 
       // Best-effort reply on error
       try {
-        await replyToLine(
-          replyToken,
-          "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ",
-          accessToken
-        );
+        if (event.replyToken) {
+          await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              replyToken: event.replyToken,
+              messages: [{ type: "text", text: "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ" }],
+            }),
+          });
+        }
       } catch {
         // Reply token may have expired
       }
     }
+
+    results.push(diag);
   }
+
+  // Single consolidated log with all diagnostics
+  console.log(JSON.stringify({ webhook: businessId, events: events.length, results }));
 
   return NextResponse.json({ status: "ok" });
 }
