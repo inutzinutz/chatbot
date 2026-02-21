@@ -6,7 +6,8 @@ import {
   type ChatMessage,
 } from "@/lib/pipeline";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const maxDuration = 25; // seconds (Vercel Hobby limit)
 
 /* ------------------------------------------------------------------ */
 /*  LINE Webhook — shared endpoint for all businesses                  */
