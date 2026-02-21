@@ -321,7 +321,7 @@ export async function POST(req: NextRequest) {
       if (lineUserId) {
         profile = await fetchLineProfile(lineUserId, accessToken);
       }
-      chatStore.getOrCreateConversation(businessId, lineUserId, {
+      await chatStore.getOrCreateConversation(businessId, lineUserId, {
         displayName: profile?.displayName,
         pictureUrl: profile?.pictureUrl,
         statusMessage: profile?.statusMessage,
@@ -329,14 +329,14 @@ export async function POST(req: NextRequest) {
       });
 
       // ── Store customer message ──
-      chatStore.addMessage(businessId, lineUserId, {
+      await chatStore.addMessage(businessId, lineUserId, {
         role: "customer",
         content: userText,
         timestamp: Date.now(),
       });
 
       // ── Check if bot is enabled ──
-      const botEnabled = chatStore.isBotEnabled(businessId, lineUserId);
+      const botEnabled = await chatStore.isBotEnabled(businessId, lineUserId);
       diag.botEnabled = botEnabled;
 
       if (!botEnabled) {
@@ -377,7 +377,7 @@ export async function POST(req: NextRequest) {
       diag.replyPreview = replyText.slice(0, 80);
 
       // ── Store bot reply ──
-      chatStore.addMessage(businessId, lineUserId, {
+      await chatStore.addMessage(businessId, lineUserId, {
         role: "bot",
         content: replyText,
         timestamp: Date.now(),

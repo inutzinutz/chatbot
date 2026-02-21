@@ -41,15 +41,15 @@ export async function GET(req: NextRequest) {
 
   if (userId) {
     // Get messages for a specific conversation
-    const messages = chatStore.getMessages(businessId, userId);
-    const conversations = chatStore.getConversations(businessId);
+    const messages = await chatStore.getMessages(businessId, userId);
+    const conversations = await chatStore.getConversations(businessId);
     const conversation = conversations.find((c) => c.userId === userId) || null;
     return NextResponse.json({ conversation, messages });
   }
 
   // List all conversations
-  const conversations = chatStore.getConversations(businessId);
-  const totalUnread = chatStore.getTotalUnread(businessId);
+  const conversations = await chatStore.getConversations(businessId);
+  const totalUnread = await chatStore.getTotalUnread(businessId);
   return NextResponse.json({ conversations, totalUnread });
 }
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Store admin message
-      const stored = chatStore.addMessage(businessId, userId, {
+      const stored = await chatStore.addMessage(businessId, userId, {
         role: "admin",
         content: message,
         timestamp: Date.now(),
@@ -150,10 +150,10 @@ export async function POST(req: NextRequest) {
         );
       }
       const enabled = !!body.enabled;
-      chatStore.toggleBot(businessId, userId, enabled);
+      await chatStore.toggleBot(businessId, userId, enabled);
 
       // Also store a system-like message noting the change
-      chatStore.addMessage(businessId, userId, {
+      await chatStore.addMessage(businessId, userId, {
         role: "admin",
         content: enabled
           ? "[ระบบ] เปิด Bot ตอบอัตโนมัติแล้ว"
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      chatStore.markRead(businessId, userId);
+      await chatStore.markRead(businessId, userId);
       return NextResponse.json({ success: true });
     }
 
