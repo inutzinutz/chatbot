@@ -96,16 +96,23 @@ export default function ChatWindow() {
         };
 
         if (reader) {
+          let sseBuffer = ""; // buffer for incomplete SSE lines across chunks
+
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split("\n").filter((l) => l.trim());
+            // { stream: true } keeps incomplete UTF-8 multibyte chars buffered
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split("\n");
+            // Keep the last (possibly incomplete) line in the buffer
+            sseBuffer = lines.pop() || "";
 
             for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              if (trimmed.startsWith("data: ")) {
+                const data = trimmed.slice(6);
                 if (data === "[DONE]") break;
                 try {
                   const parsed = JSON.parse(data);
@@ -131,7 +138,7 @@ export default function ChatWindow() {
                     }
                   }
                 } catch {
-                  // skip
+                  // skip malformed JSON — line may be incomplete, will retry next chunk
                 }
               }
             }

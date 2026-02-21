@@ -1107,18 +1107,20 @@ export async function POST(req: NextRequest) {
           }
 
           try {
+            let buffer = "";
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const chunk = decoder.decode(value);
-              const lines = chunk
-                .split("\n")
-                .filter((line) => line.trim() !== "");
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
 
               for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                  const data = line.slice(6);
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                if (trimmed.startsWith("data: ")) {
+                  const data = trimmed.slice(6);
                   if (data === "[DONE]") {
                     controller.enqueue(
                       encoder.encode("data: [DONE]\n\n")
