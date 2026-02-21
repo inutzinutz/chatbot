@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DJI 13 STORE - AI Chatbot",
-  description: "AI Chatbot สำหรับร้าน DJI 13 STORE ตัวแทนจำหน่าย DJI อย่างเป็นทางการ แนะนำโดรน กล้องแอคชั่น กิมบอล และอุปกรณ์เสริม",
+  title: "DroidMind - AI Chatbot Platform",
+  description: "DroidMind AI Chatbot Management Platform - Multi-business AI chatbot dashboard",
 };
 
 export default function RootLayout({

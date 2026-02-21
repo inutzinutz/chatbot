@@ -13,6 +13,7 @@ import {
   ToggleRight,
   RefreshCw,
   Circle,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatConversation, ChatMessage } from "@/lib/chatStore";
@@ -48,6 +49,8 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [searchText, setSearchText] = useState("");
   const [sending, setSending] = useState(false);
   const [totalUnread, setTotalUnread] = useState(0);
+  const [globalBotEnabled, setGlobalBotEnabled] = useState(true);
+  const [globalToggling, setGlobalToggling] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
@@ -63,6 +66,9 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
         const data = await res.json();
         setConversations(data.conversations || []);
         setTotalUnread(data.totalUnread || 0);
+        if (typeof data.globalBotEnabled === "boolean") {
+          setGlobalBotEnabled(data.globalBotEnabled);
+        }
       }
     } catch {
       // Silently fail on network errors
@@ -196,6 +202,28 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     }
   };
 
+  // ── Global bot toggle ──
+  const handleGlobalToggle = async () => {
+    if (globalToggling) return;
+    const newEnabled = !globalBotEnabled;
+    setGlobalToggling(true);
+    setGlobalBotEnabled(newEnabled); // Optimistic
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "globalToggleBot",
+          businessId,
+          enabled: newEnabled,
+        }),
+      });
+    } catch {
+      setGlobalBotEnabled(!newEnabled); // Revert
+    }
+    setGlobalToggling(false);
+  };
+
   // ── Filtered conversations ──
   const filtered = searchText
     ? conversations.filter(
@@ -232,6 +260,38 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
           </div>
+
+          {/* Global Bot Toggle */}
+          <button
+            onClick={handleGlobalToggle}
+            disabled={globalToggling}
+            className={cn(
+              "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-medium transition-all mb-3 border",
+              globalBotEnabled
+                ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Bot className="h-4 w-4" />
+              <span>Bot Auto-Reply</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={cn(
+                "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                globalBotEnabled
+                  ? "bg-green-200 text-green-800"
+                  : "bg-red-200 text-red-800"
+              )}>
+                {globalBotEnabled ? "ON" : "OFF"}
+              </span>
+              {globalBotEnabled ? (
+                <ToggleRight className="h-5 w-5" />
+              ) : (
+                <ToggleLeft className="h-5 w-5" />
+              )}
+            </div>
+          </button>
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -460,16 +520,37 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                           : "bg-white border border-gray-200 text-gray-800 rounded-bl-md shadow-sm"
                       )}
                     >
-                      {/* Role badge */}
+                      {/* Role badge + Pipeline info */}
                       {isBot && (
-                        <div className="flex items-center gap-1 mb-1">
-                          <Bot className="h-3 w-3 text-indigo-500" />
-                          <span className="text-[10px] font-semibold text-indigo-500">
-                            Bot
-                          </span>
-                          {msg.pipelineLayerName && (
-                            <span className="text-[9px] text-gray-400 ml-1">
-                              L{msg.pipelineLayer}: {msg.pipelineLayerName}
+                        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <Bot className="h-3 w-3 text-indigo-500" />
+                            <span className="text-[10px] font-semibold text-indigo-500">
+                              Bot
+                            </span>
+                          </div>
+                          {typeof msg.pipelineLayer === "number" && (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md",
+                                msg.pipelineLayer <= 2
+                                  ? "bg-slate-100 text-slate-600"
+                                  : msg.pipelineLayer <= 5
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : msg.pipelineLayer <= 9
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                  : msg.pipelineLayer <= 11
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                  : msg.pipelineLayer <= 13
+                                  ? "bg-orange-50 text-orange-700 border border-orange-200"
+                                  : "bg-purple-50 text-purple-700 border border-purple-200"
+                              )}
+                            >
+                              <Zap className="h-2.5 w-2.5" />
+                              L{msg.pipelineLayer}
+                              {msg.pipelineLayerName && (
+                                <span className="font-medium">{msg.pipelineLayerName}</span>
+                              )}
                             </span>
                           )}
                         </div>

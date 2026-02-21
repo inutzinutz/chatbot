@@ -278,6 +278,20 @@ class ChatStore {
     await redis.del(msgsKey(businessId, userId));
     await redis.zrem(convsKey(businessId), userId);
   }
+
+  // ── Global Bot Toggle (per business) ──
+  // Key: globalbot:{businessId} → "1" (enabled) or "0" (disabled)
+
+  /** Set global bot on/off for entire business */
+  async setGlobalBotEnabled(businessId: string, enabled: boolean): Promise<void> {
+    await redis.set(`globalbot:${businessId}`, enabled ? "1" : "0");
+  }
+
+  /** Check if global bot is enabled for a business (default: enabled) */
+  async isGlobalBotEnabled(businessId: string): Promise<boolean> {
+    const val = await redis.get(`globalbot:${businessId}`);
+    return val !== "0"; // Default: enabled (null or "1")
+  }
 }
 
 // ── Export singleton ──

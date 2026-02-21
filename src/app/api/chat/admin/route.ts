@@ -47,10 +47,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ conversation, messages });
   }
 
-  // List all conversations
+  // List all conversations + global bot status
   const conversations = await chatStore.getConversations(businessId);
   const totalUnread = await chatStore.getTotalUnread(businessId);
-  return NextResponse.json({ conversations, totalUnread });
+  const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
+  return NextResponse.json({ conversations, totalUnread, globalBotEnabled });
 }
 
 // ── POST: Actions (send, toggleBot, markRead) ──
@@ -174,6 +175,16 @@ export async function POST(req: NextRequest) {
       }
       await chatStore.markRead(businessId, userId);
       return NextResponse.json({ success: true });
+    }
+
+    // ── Global bot toggle (entire business) ──
+    case "globalToggleBot": {
+      const globalEnabled = !!body.enabled;
+      await chatStore.setGlobalBotEnabled(businessId, globalEnabled);
+      return NextResponse.json({
+        success: true,
+        globalBotEnabled: globalEnabled,
+      });
     }
 
     default:

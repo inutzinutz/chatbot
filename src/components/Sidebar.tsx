@@ -12,7 +12,6 @@ import {
   Zap,
   Settings,
   Globe,
-  Bot,
   ChevronLeft,
   ChevronRight,
   Tag,
@@ -23,9 +22,11 @@ import {
   ChevronsUpDown,
   Battery,
   Plane,
+  LogOut,
+  User,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+import { businessUnitList } from "@/lib/businessUnits";
 
 export type PageId =
   | "chat"
@@ -43,11 +44,20 @@ export type PageId =
   | "channels"
   | "settings";
 
+interface AuthUser {
+  username: string;
+  businessId: string;
+  isSuperAdmin: boolean;
+  allowedBusinessIds: string[];
+}
+
 interface SidebarProps {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
   businessId: string;
   onBusinessChange: (id: string) => void;
+  authUser: AuthUser;
+  onLogout: () => void;
 }
 
 const NAV_SECTIONS = [
@@ -87,13 +97,25 @@ const NAV_SECTIONS = [
   },
 ];
 
-export default function Sidebar({ activePage, onNavigate, businessId, onBusinessChange }: SidebarProps) {
+export default function Sidebar({
+  activePage,
+  onNavigate,
+  businessId,
+  onBusinessChange,
+  authUser,
+  onLogout,
+}: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [bizMenuOpen, setBizMenuOpen] = useState(false);
   const bizMenuRef = useRef<HTMLDivElement>(null);
 
-  const currentBiz = businessUnitList.find((b) => b.id === businessId) ?? businessUnitList[0];
+  // Filter business list to allowed businesses only
+  const allowedBusinesses = businessUnitList.filter((b) =>
+    authUser.allowedBusinessIds.includes(b.id)
+  );
+  const canSwitchBusiness = allowedBusinesses.length > 1;
 
+  const currentBiz = businessUnitList.find((b) => b.id === businessId) ?? businessUnitList[0];
   const BizIcon = currentBiz.icon === "battery" ? Battery : Plane;
 
   // Close business switcher dropdown on outside click
@@ -118,10 +140,10 @@ export default function Sidebar({ activePage, onNavigate, businessId, onBusiness
       {/* Business Switcher Header */}
       <div ref={bizMenuRef} className="relative border-b border-gray-100">
         <button
-          onClick={() => !collapsed && setBizMenuOpen(!bizMenuOpen)}
+          onClick={() => !collapsed && canSwitchBusiness && setBizMenuOpen(!bizMenuOpen)}
           className={cn(
             "flex items-center gap-3 w-full px-4 py-5 text-left transition-colors",
-            !collapsed && "hover:bg-gray-50 cursor-pointer"
+            !collapsed && canSwitchBusiness && "hover:bg-gray-50 cursor-pointer"
           )}
         >
           <div
@@ -140,15 +162,17 @@ export default function Sidebar({ activePage, onNavigate, businessId, onBusiness
                 </h1>
                 <p className="text-[10px] text-gray-400 truncate">AI Chatbot</p>
               </div>
-              <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              {canSwitchBusiness && (
+                <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              )}
             </>
           )}
         </button>
 
-        {/* Dropdown */}
-        {bizMenuOpen && !collapsed && (
+        {/* Business Dropdown — only for super admin / multi-business */}
+        {bizMenuOpen && !collapsed && canSwitchBusiness && (
           <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
-            {businessUnitList.map((biz) => {
+            {allowedBusinesses.map((biz) => {
               const Icon = biz.icon === "battery" ? Battery : Plane;
               const isSelected = biz.id === businessId;
               return (
@@ -237,8 +261,39 @@ export default function Sidebar({ activePage, onNavigate, businessId, onBusiness
         ))}
       </div>
 
-      {/* Collapse Toggle */}
-      <div className="border-t border-gray-100 p-2">
+      {/* User Info & Logout */}
+      <div className="border-t border-gray-100 p-2 space-y-1">
+        {/* User info */}
+        {!collapsed && (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+              <User className="h-3.5 w-3.5 text-gray-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-gray-700 truncate">
+                {authUser.username}
+              </p>
+              <p className="text-[10px] text-gray-400 truncate">
+                {authUser.isSuperAdmin ? "Super Admin" : currentBiz.shortName}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Logout button */}
+        <button
+          onClick={onLogout}
+          className={cn(
+            "flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors",
+            collapsed && "justify-center"
+          )}
+          title={collapsed ? "Logout" : undefined}
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Logout</span>}
+        </button>
+
+        {/* Collapse Toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"

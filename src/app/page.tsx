@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Sidebar, { type PageId } from "@/components/Sidebar";
+import LoginPage from "@/components/LoginPage";
 import ChatWindow from "@/components/ChatWindow";
 import LiveChatPage from "@/components/LiveChatPage";
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
@@ -20,7 +21,16 @@ import {
   ExternalLink,
   Zap,
 } from "lucide-react";
-import { DEFAULT_BUSINESS_ID, getBusinessConfig } from "@/lib/businessUnits";
+import { getBusinessConfig } from "@/lib/businessUnits";
+
+// ── Auth user type ──
+
+interface AuthUser {
+  username: string;
+  businessId: string;
+  isSuperAdmin: boolean;
+  allowedBusinessIds: string[];
+}
 
 function SettingsPage({ businessId }: { businessId: string }) {
   const config = getBusinessConfig(businessId);
@@ -126,7 +136,64 @@ function SettingsPage({ businessId }: { businessId: string }) {
 
 export default function Home() {
   const [activePage, setActivePage] = useState<PageId>("live-chat");
-  const [businessId, setBusinessId] = useState(DEFAULT_BUSINESS_ID);
+  const [businessId, setBusinessId] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // ── Check session on mount ──
+  useEffect(() => {
+    fetch("/api/auth")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated && data.user) {
+          setAuthUser(data.user);
+          setBusinessId(data.user.businessId);
+        }
+      })
+      .catch(() => {
+        // Not authenticated
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  // ── Login handler ──
+  const handleLogin = useCallback((user: AuthUser) => {
+    setAuthUser(user);
+    setBusinessId(user.businessId);
+  }, []);
+
+  // ── Logout handler ──
+  const handleLogout = useCallback(async () => {
+    await fetch("/api/auth", { method: "DELETE" });
+    setAuthUser(null);
+    setBusinessId("");
+    setActivePage("live-chat");
+  }, []);
+
+  // ── Business change (super admin only) ──
+  const handleBusinessChange = useCallback(
+    (id: string) => {
+      if (!authUser) return;
+      if (authUser.isSuperAdmin || authUser.allowedBusinessIds.includes(id)) {
+        setBusinessId(id);
+      }
+    },
+    [authUser]
+  );
+
+  // ── Loading state ──
+  if (!authChecked) {
+    return (
+      <div className="flex h-dvh w-dvw items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <div className="h-8 w-8 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Not authenticated → Login page ──
+  if (!authUser) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   const renderContent = () => {
     switch (activePage) {
@@ -171,7 +238,14 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh w-dvw overflow-hidden bg-gray-100">
-      <Sidebar activePage={activePage} onNavigate={setActivePage} businessId={businessId} onBusinessChange={setBusinessId} />
+      <Sidebar
+        activePage={activePage}
+        onNavigate={setActivePage}
+        businessId={businessId}
+        onBusinessChange={handleBusinessChange}
+        authUser={authUser}
+        onLogout={handleLogout}
+      />
       {renderContent()}
     </div>
   );

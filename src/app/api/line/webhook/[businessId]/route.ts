@@ -309,6 +309,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
         timestamp: Date.now(),
       });
 
+      // ── Check global bot toggle (entire business) ──
+      const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
+      diag.globalBotEnabled = globalBotEnabled;
+
+      if (!globalBotEnabled) {
+        diag.skippedReason = "global_bot_disabled";
+        results.push(diag);
+        continue;
+      }
+
       // ── Check if bot is enabled for this conversation ──
       const botEnabled = await chatStore.isBotEnabled(businessId, lineUserId);
       diag.botEnabled = botEnabled;
