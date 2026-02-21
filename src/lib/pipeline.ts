@@ -35,6 +35,12 @@ export interface TracedResult {
   trace: PipelineTrace;
   /** True when Layer 1 admin escalation was triggered — webhook should auto-pin + disable bot + notify admin */
   isAdminEscalation?: boolean;
+  /**
+   * When bot is unsure, this holds suggested quick-reply labels.
+   * LINE webhook → send as Quick Reply buttons.
+   * Web chat → send as clickable option chips.
+   */
+  clarifyOptions?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -552,6 +558,110 @@ ${intentPolicyList}
 }
 
 // ─────────────────────────────────────────────────────────────
+// CLARIFICATION ENGINE
+// ─────────────────────────────────────────────────────────────
+
+interface ClarifyResult {
+  question: string;
+  options: string[];
+}
+
+/**
+ * Returns a clarify question + quick-reply options when the message is ambiguous.
+ * Returns null when the pipeline can handle it normally.
+ *
+ * Four trigger cases:
+ *  A) Very short / vague message (≤8 chars or single keyword) with no product context
+ *  B) Intent scored but below threshold (score 1–1.9)
+ *  C) Top-2 intents are close in score (diff ≤ 1) AND their topics are distinct
+ *  D) No intent matched at all + no product context + message > 3 chars (genuine unknown)
+ */
+function buildClarifyResponse(
+  message: string,
+  allScores: IntentScore[],
+  ctx: ConversationContext,
+  biz: BusinessConfig
+): ClarifyResult | null {
+  const trimmed = message.trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const isShort = trimmed.length <= 8 || words.length <= 1;
+  const hasProductCtx = !!ctx.activeProduct;
+  const topScore = allScores[0]?.score ?? 0;
+  const secondScore = allScores[1]?.score ?? 0;
+
+  // Skip clarification for greetings or very short affirmations
+  const skipWords = ["สวัสดี", "หวัดดี", "hello", "hi", "ดี", "โอเค", "ok", "ครับ", "ค่ะ", "เอา", "ได้"];
+  if (skipWords.some((w) => trimmed.toLowerCase() === w || trimmed.toLowerCase().startsWith(w + " "))) {
+    return null;
+  }
+
+  // Build per-BU default clarify options
+  const defaultOptions = biz.categoryChecks.slice(0, 4).map((c) => c.label);
+  if (defaultOptions.length === 0) defaultOptions.push("ราคาสินค้า", "สินค้าแนะนำ", "ติดต่อเรา");
+
+  // ── Case A: Short / vague message, no product context ──
+  if (isShort && !hasProductCtx && trimmed.length > 2) {
+    return {
+      question: `สวัสดีครับ! ต้องการสอบถามเรื่องอะไรครับ? 😊`,
+      options: defaultOptions,
+    };
+  }
+
+  // ── Case B: Intent matched but score too low (1–1.9) ──
+  if (topScore >= 1 && topScore < 2) {
+    const intent = allScores[0].intent;
+    const label = intent.name;
+    // Build options from this intent + top alternatives
+    const opts: string[] = [];
+    if (allScores[0]) opts.push(allScores[0].intent.name);
+    if (allScores[1]) opts.push(allScores[1].intent.name);
+    // Pad with BU defaults if needed
+    for (const d of defaultOptions) {
+      if (opts.length >= 4) break;
+      if (!opts.includes(d)) opts.push(d);
+    }
+    return {
+      question: `ขอถามให้แน่ใจครับ — ต้องการสอบถามเรื่อง "${label}" ใช่ไหมครับ หรือมีเรื่องอื่นที่ต้องการทราบครับ?`,
+      options: opts.slice(0, 4),
+    };
+  }
+
+  // ── Case C: Two intents nearly tied (top score ≥ 2, diff ≤ 1, different topics) ──
+  if (topScore >= 2 && secondScore >= 2 && (topScore - secondScore) <= 1) {
+    const topId = allScores[0].intent.id;
+    const secId = allScores[1].intent.id;
+    // Only clarify when the two intents are meaningfully different
+    const SKIP_PAIRS = new Set([
+      `${topId}|${secId}`, `${secId}|${topId}`,
+    ]);
+    // If both are product-related intents, it's OK to skip clarification
+    const productIntents = new Set(["product_inquiry", "product_details", "recommendation", "ev_purchase", "drone_purchase", "budget_recommendation"]);
+    const bothProduct = productIntents.has(topId) && productIntents.has(secId);
+    void SKIP_PAIRS;
+    if (!bothProduct) {
+      return {
+        question: `ขอถามให้ชัดขึ้นหน่อยครับ — ต้องการสอบถามเรื่องอะไรครับ?`,
+        options: [
+          allScores[0].intent.name,
+          allScores[1].intent.name,
+          ...defaultOptions.filter((d) => d !== allScores[0].intent.name && d !== allScores[1].intent.name),
+        ].slice(0, 4),
+      };
+    }
+  }
+
+  // ── Case D: No intent match, no product context, message is not trivial ──
+  if (topScore === 0 && !hasProductCtx && trimmed.length > 3) {
+    return {
+      question: `ขอบคุณที่ติดต่อ **${biz.name}** ครับ! ไม่แน่ใจว่าต้องการสอบถามเรื่องอะไรครับ — ช่วยเลือกหรือพิมพ์รายละเอียดเพิ่มเติมได้เลยครับ 😊`,
+      options: defaultOptions,
+    };
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────
 // PIPELINE — with conversation context & tracing (business-aware)
 // ─────────────────────────────────────────────────────────────
 
@@ -969,6 +1079,28 @@ export function generatePipelineResponseWithTrace(
     }
   }
   addStep(12, "Category Specific", "ค้นหาตามหมวดเฉพาะ", "skipped", t);
+
+  // ── CLARIFICATION CHECK ──
+  // Detect ambiguity before falling to Layer 13/14 and ask bot clarify question.
+  // Cases:
+  //   A) Message is short/vague (≤8 chars or single word) → ask what they need
+  //   B) Intent score exists but below threshold (1–1.9) → ask to confirm topic
+  //   C) Top-2 intent scores are close (within 1 point) → ask to disambiguate
+  //   D) Pipeline reached here (L13/14) without resolving a product → ask clarify
+  {
+    const clarifyResult = buildClarifyResponse(userMessage, allScores, ctx, biz);
+    if (clarifyResult) {
+      addStep(12, "Clarification", "ข้อความคลุมเครือ — ถามเพิ่มเติม", "matched", t, {
+        intent: "clarify",
+        allScores: allScores.slice(0, 3).map((s) => ({ intent: s.intent.name, score: s.score })),
+      });
+      finalLayer = 12;
+      finalLayerName = "Clarification";
+      const result = finishTrace(clarifyResult.question);
+      result.clarifyOptions = clarifyResult.options;
+      return result;
+    }
+  }
 
   // ── LAYER 13: Context-aware fallback ──
   t = now();
