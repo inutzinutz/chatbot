@@ -94,7 +94,7 @@ export function matchDiscontinued(message: string): DiscontinuedMapping | undefi
 }
 
 export function buildAdminEscalationResponse(): string {
-  return "ได้เลยครับ! ผมจะโอนการสนทนาให้ทีมงานดูแลต่อทันทีครับ\nทีมงานจะติดต่อกลับโดยเร็วที่สุดครับ\n\nติดต่อด่วน: LINE @evlifethailand";
+  return "ได้เลยครับ! ผมจะโอนการสนทนาให้ทีมงานดูแลต่อทันทีครับ\nทีมงานจะติดต่อกลับโดยเร็วที่สุดครับ\n\nติดต่อด่วน: LINE @evlifethailand | โทร: 094-905-6155";
 }
 
 export function buildStockCheckResponse(): string {
@@ -331,7 +331,7 @@ export const intents: Intent[] = [
     description: "ลูกค้าต้องการคุยกับแอดมินหรือพนักงานจริง",
     triggers: ["แอดมิน", "admin", "พนักงาน", "คนจริง", "เจ้าหน้าที่", "ตัวแทน", "representative", "human", "คุยกับคน", "ขอคุยกับ", "โอนสาย"],
     policy: "หยุดตอบทันที ส่งข้อความโอนให้ทีมงาน",
-    responseTemplate: "ได้เลยครับ! ผมจะโอนการสนทนาให้ทีมงานดูแลต่อทันทีครับ\n\nทีมงานจะติดต่อกลับโดยเร็วที่สุดครับ\n\nติดต่อด่วน: LINE @evlifethailand",
+    responseTemplate: "ได้เลยครับ! ผมจะโอนการสนทนาให้ทีมงานดูแลต่อทันทีครับ\n\nทีมงานจะติดต่อกลับโดยเร็วที่สุดครับ\n\nติดต่อด่วน: LINE @evlifethailand | โทร: 094-905-6155",
     active: true,
   },
   {
