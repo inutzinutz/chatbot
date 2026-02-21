@@ -1,15 +1,12 @@
 /* ------------------------------------------------------------------ */
-/*  Chat Store — Upstash Redis storage for live chat conversations     */
-/*  Shared across all Vercel serverless functions via external Redis   */
+/*  Chat Store — Redis storage for live chat conversations              */
+/*  Shared across all Vercel serverless functions via external Redis    */
 /*                                                                      */
-/*  Env vars (auto-injected by Vercel Marketplace → Upstash Redis):    */
-/*    UPSTASH_REDIS_REST_URL                                            */
-/*    UPSTASH_REDIS_REST_TOKEN                                          */
-/*  Fallback (Vercel KV compat):                                       */
-/*    KV_REST_API_URL / KV_REST_API_TOKEN                              */
+/*  Env var (auto-injected by Vercel Marketplace → Redis):             */
+/*    REDIS_URL                                                         */
 /* ------------------------------------------------------------------ */
 
-import { Redis } from "@upstash/redis";
+import Redis from "ioredis";
 
 // ── Types ──
 
@@ -37,21 +34,32 @@ export interface ChatMessage {
   pipelineLayerName?: string;
 }
 
-// ── Redis client singleton ──
+// ── Redis client singleton (reused across warm invocations) ──
 
 function createRedis(): Redis {
-  const url =
-    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || "";
-  const token =
-    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "";
+  const url = process.env.REDIS_URL;
 
-  if (!url || !token) {
-    console.warn(
-      "[chatStore] Missing Redis credentials. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN."
-    );
+  if (!url) {
+    console.warn("[chatStore] Missing REDIS_URL env var.");
+    // Return a dummy — will throw on first actual use
+    return new Redis({ lazyConnect: true });
   }
 
-  return new Redis({ url, token });
+  const client = new Redis(url, {
+    maxRetriesPerRequest: 3,
+    connectTimeout: 5000,
+    // Disable reconnect in serverless — each invocation gets fresh connection if needed
+    retryStrategy(times) {
+      if (times > 3) return null; // stop retrying
+      return Math.min(times * 200, 1000);
+    },
+  });
+
+  client.on("error", (err) => {
+    console.error("[chatStore] Redis error:", err.message);
+  });
+
+  return client;
 }
 
 const g = globalThis as unknown as { __redis?: Redis };
@@ -59,9 +67,9 @@ if (!g.__redis) g.__redis = createRedis();
 const redis = g.__redis;
 
 // ── Key helpers ──
-// conv:{businessId}:{userId}     → JSON<ChatConversation>
+// conv:{businessId}:{userId}     → JSON string of ChatConversation
 // convs:{businessId}             → Sorted set (member=userId, score=lastMessageAt)
-// msgs:{businessId}:{userId}     → List of JSON<ChatMessage>
+// msgs:{businessId}:{userId}     → List of JSON strings (ChatMessage)
 
 function convKey(biz: string, uid: string) {
   return `conv:${biz}:${uid}`;
@@ -71,6 +79,22 @@ function convsKey(biz: string) {
 }
 function msgsKey(biz: string, uid: string) {
   return `msgs:${biz}:${uid}`;
+}
+
+// ── JSON helpers (ioredis stores/returns strings) ──
+
+async function getJSON<T>(key: string): Promise<T | null> {
+  const raw = await redis.get(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function setJSON<T>(key: string, value: T): Promise<void> {
+  await redis.set(key, JSON.stringify(value));
 }
 
 // ── Chat Store (async API) ──
@@ -88,7 +112,7 @@ class ChatStore {
     }
   ): Promise<ChatConversation> {
     const ck = convKey(businessId, userId);
-    const existing = await redis.get<ChatConversation>(ck);
+    const existing = await getJSON<ChatConversation>(ck);
 
     if (existing) {
       let updated = false;
@@ -105,7 +129,7 @@ class ChatStore {
         updated = true;
       }
       if (updated) {
-        await redis.set(ck, existing);
+        await setJSON(ck, existing);
       }
       return existing;
     }
@@ -125,11 +149,8 @@ class ChatStore {
       source: opts?.source || "line",
       createdAt: Date.now(),
     };
-    await redis.set(ck, conv);
-    await redis.zadd(convsKey(businessId), {
-      score: conv.lastMessageAt,
-      member: userId,
-    });
+    await setJSON(ck, conv);
+    await redis.zadd(convsKey(businessId), conv.lastMessageAt, userId);
     return conv;
   }
 
@@ -156,7 +177,7 @@ class ChatStore {
 
     // Update conversation metadata
     const ck = convKey(businessId, userId);
-    const conv = await redis.get<ChatConversation>(ck);
+    const conv = await getJSON<ChatConversation>(ck);
     if (conv) {
       conv.lastMessage = msg.content.slice(0, 100);
       conv.lastMessageAt = msg.timestamp;
@@ -164,12 +185,9 @@ class ChatStore {
       if (msg.role === "customer") {
         conv.unreadCount++;
       }
-      await redis.set(ck, conv);
+      await setJSON(ck, conv);
       // Update sorted set score
-      await redis.zadd(convsKey(businessId), {
-        score: msg.timestamp,
-        member: userId,
-      });
+      await redis.zadd(convsKey(businessId), msg.timestamp, userId);
     }
 
     return fullMsg;
@@ -177,33 +195,43 @@ class ChatStore {
 
   /** Get all messages for a conversation */
   async getMessages(businessId: string, userId: string): Promise<ChatMessage[]> {
-    const raw = await redis.lrange<string>(msgsKey(businessId, userId), 0, -1);
+    const raw = await redis.lrange(msgsKey(businessId, userId), 0, -1);
     return raw.map((item) => {
-      if (typeof item === "string") return JSON.parse(item) as ChatMessage;
-      return item as unknown as ChatMessage;
-    });
+      try {
+        return JSON.parse(item) as ChatMessage;
+      } catch {
+        return null;
+      }
+    }).filter((m): m is ChatMessage => m !== null);
   }
 
   /** Get all conversations for a business, sorted by most recent */
   async getConversations(businessId: string): Promise<ChatConversation[]> {
-    // Get all userIds from sorted set, most recent first
-    const userIds = await redis.zrange<string[]>(
-      convsKey(businessId),
-      0,
-      -1,
-      { rev: true }
-    );
+    // Get all userIds from sorted set, most recent first (REV)
+    const userIds = await redis.zrange(convsKey(businessId), 0, -1, "REV");
 
     if (!userIds || userIds.length === 0) return [];
 
-    // Fetch all conversation objects in parallel
+    // Fetch all conversation objects via pipeline
     const pipeline = redis.pipeline();
     for (const uid of userIds) {
       pipeline.get(convKey(businessId, uid));
     }
-    const results = await pipeline.exec<(ChatConversation | null)[]>();
+    const results = await pipeline.exec();
 
-    return results.filter((c): c is ChatConversation => c !== null);
+    if (!results) return [];
+
+    const convs: ChatConversation[] = [];
+    for (const [err, raw] of results) {
+      if (err || !raw) continue;
+      try {
+        const conv = JSON.parse(raw as string) as ChatConversation;
+        convs.push(conv);
+      } catch {
+        // skip malformed
+      }
+    }
+    return convs;
   }
 
   /** Toggle bot auto-reply for a conversation */
@@ -213,10 +241,10 @@ class ChatStore {
     enabled: boolean
   ): Promise<boolean> {
     const ck = convKey(businessId, userId);
-    const conv = await redis.get<ChatConversation>(ck);
+    const conv = await getJSON<ChatConversation>(ck);
     if (conv) {
       conv.botEnabled = enabled;
-      await redis.set(ck, conv);
+      await setJSON(ck, conv);
       return true;
     }
     return false;
@@ -224,17 +252,17 @@ class ChatStore {
 
   /** Check if bot is enabled for a conversation */
   async isBotEnabled(businessId: string, userId: string): Promise<boolean> {
-    const conv = await redis.get<ChatConversation>(convKey(businessId, userId));
+    const conv = await getJSON<ChatConversation>(convKey(businessId, userId));
     return conv?.botEnabled ?? true; // Default: bot enabled
   }
 
   /** Mark conversation as read (reset unread count) */
   async markRead(businessId: string, userId: string): Promise<void> {
     const ck = convKey(businessId, userId);
-    const conv = await redis.get<ChatConversation>(ck);
+    const conv = await getJSON<ChatConversation>(ck);
     if (conv) {
       conv.unreadCount = 0;
-      await redis.set(ck, conv);
+      await setJSON(ck, conv);
     }
   }
 
