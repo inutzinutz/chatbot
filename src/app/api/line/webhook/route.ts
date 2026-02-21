@@ -419,11 +419,11 @@ export async function GET(req: NextRequest) {
     diagnostics.pipelineError = String(err);
   }
 
-  // 3. Test LINE API token validity (with 5s timeout)
+  // 3. Test LINE API token validity (with 8s timeout)
   if (accessToken) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 8000);
       const res = await fetch("https://api.line.me/v2/bot/info", {
         headers: { Authorization: `Bearer ${accessToken}` },
         signal: controller.signal,
@@ -437,6 +437,32 @@ export async function GET(req: NextRequest) {
       };
     } catch (err) {
       diagnostics.lineApiError = String(err);
+    }
+  }
+
+  // 4. Test Push API — send a message to a specific user
+  const pushTo = req.nextUrl.searchParams.get("push");
+  if (pushTo && accessToken) {
+    try {
+      const pushRes = await fetch("https://api.line.me/v2/bot/message/push", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          to: pushTo,
+          messages: [{ type: "text", text: "ทดสอบจาก EV Life Thailand Bot - ระบบทำงานปกติครับ!" }],
+        }),
+      });
+      const pushBody = await pushRes.text().catch(() => "");
+      diagnostics.pushTest = {
+        status: pushRes.status,
+        ok: pushRes.ok,
+        body: pushBody.slice(0, 500),
+      };
+    } catch (err) {
+      diagnostics.pushError = String(err);
     }
   }
 
