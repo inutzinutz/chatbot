@@ -46,6 +46,9 @@ export interface ChatConversation {
   pinned?: boolean;
   pinnedAt?: number;
   pinnedReason?: string;
+  /** Admin who has claimed/assigned this conversation */
+  assignedAdmin?: string;
+  assignedAt?: number;
 }
 
 export interface ChatMessage {
@@ -758,6 +761,24 @@ class ChatStore {
       } catch { /* skip */ }
     }
     return stats;
+  }
+
+  // ── Agent Assignment ──
+
+  async assignConversation(businessId: string, userId: string, adminUsername: string): Promise<void> {
+    const conv = await getJSON<ChatConversation>(convKey(businessId, userId));
+    if (!conv) return;
+    conv.assignedAdmin = adminUsername;
+    conv.assignedAt = Date.now();
+    await setJSON(convKey(businessId, userId), conv);
+  }
+
+  async unassignConversation(businessId: string, userId: string): Promise<void> {
+    const conv = await getJSON<ChatConversation>(convKey(businessId, userId));
+    if (!conv) return;
+    delete conv.assignedAdmin;
+    delete conv.assignedAt;
+    await setJSON(convKey(businessId, userId), conv);
   }
 
   // ── Quick Reply Templates ──

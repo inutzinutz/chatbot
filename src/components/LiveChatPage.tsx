@@ -278,6 +278,31 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     inputRef.current?.focus();
   };
 
+  // ── Agent Assignment: claim / release ──
+  const handleClaim = async (userId: string) => {
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "assign", businessId, userId }),
+      });
+      await fetchConversations();
+      await fetchMessages();
+    } catch {}
+  };
+
+  const handleRelease = async (userId: string) => {
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unassign", businessId, userId }),
+      });
+      await fetchConversations();
+      await fetchMessages();
+    } catch {}
+  };
+
   // ── Quick Reply Template: use template ──
   const applyTemplate = (template: QuickReplyTemplate) => {
     setInputText(template.text);
@@ -805,6 +830,13 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                       {conv.pinnedReason}
                     </p>
                   )}
+                  {/* Assigned admin badge */}
+                  {conv.assignedAdmin && (
+                    <p className="text-[10px] text-indigo-500 mt-0.5 flex items-center gap-1">
+                      <Shield className="h-2.5 w-2.5" />
+                      {conv.assignedAdmin}
+                    </p>
+                  )}
                 </div>
               </button>
             ))
@@ -858,6 +890,28 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
               {/* Action Buttons */}
               {activeConv && (
                 <div className="flex items-center gap-2">
+                  {/* Claim / Release button */}
+                  {activeConv.assignedAdmin ? (
+                    <button
+                      onClick={() => handleRelease(activeConv.userId)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all"
+                      title="คืนงาน"
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      <span>{activeConv.assignedAdmin}</span>
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleClaim(activeConv.userId)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
+                      title="รับงาน"
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                      <span>Claim</span>
+                    </button>
+                  )}
+
                   {/* Pin / Unpin button */}
                   {activeConv.pinned ? (
                     <button

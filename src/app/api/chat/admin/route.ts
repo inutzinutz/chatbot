@@ -455,6 +455,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    // ── Assign conversation to admin ──
+    case "assign": {
+      if (!userId) {
+        return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      }
+      await chatStore.assignConversation(businessId, userId, sentBy);
+      await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: `[ระบบ] ${sentBy} รับงานสนทนานี้แล้ว`,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "toggleBot",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: `รับงาน (assign)`,
+        timestamp: Date.now(),
+      });
+      return NextResponse.json({ success: true, assignedAdmin: sentBy });
+    }
+
+    // ── Unassign conversation ──
+    case "unassign": {
+      if (!userId) {
+        return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      }
+      await chatStore.unassignConversation(businessId, userId);
+      await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: `[ระบบ] ${sentBy} คืนงานสนทนาแล้ว`,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      return NextResponse.json({ success: true });
+    }
+
     // ── Save quick reply template ──
     case "saveTemplate": {
       const title = body.title as string;
