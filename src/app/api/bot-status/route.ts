@@ -5,12 +5,18 @@
 /*  for a given conversation.                                           */
 /*                                                                      */
 /*  GET ?businessId=xxx&userId=yyy → { botEnabled: boolean }            */
+/*                                                                      */
+/*  Handoff State Machine:                                              */
+/*  If bot is disabled AND admin has not replied in 30 minutes →        */
+/*  auto re-enable bot and write back to Redis.                         */
 /* ------------------------------------------------------------------ */
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 
 export const runtime = "nodejs";
+
+const ADMIN_INACTIVE_MS = 30 * 60 * 1000; // 30 minutes
 
 export async function GET(req: NextRequest) {
   const businessId = req.nextUrl.searchParams.get("businessId");
@@ -20,10 +26,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ botEnabled: true }); // default: allow
   }
 
-  const [globalEnabled, convEnabled] = await Promise.all([
+  const [globalEnabled, conv] = await Promise.all([
     chatStore.isGlobalBotEnabled(businessId),
-    chatStore.isBotEnabled(businessId, userId),
+    chatStore.getConversation(businessId, userId),
   ]);
 
-  return NextResponse.json({ botEnabled: globalEnabled && convEnabled });
+  if (!globalEnabled) {
+    return NextResponse.json({ botEnabled: false });
+  }
+
+  const convEnabled = conv?.botEnabled ?? true;
+
+  // ── Handoff State Machine: auto re-enable after admin inactivity ──
+  if (!convEnabled && conv) {
+    const lastAdminAt = conv.adminLastReplyAt ?? conv.assignedAt ?? 0;
+    const inactiveDuration = Date.now() - lastAdminAt;
+
+    if (lastAdminAt > 0 && inactiveDuration > ADMIN_INACTIVE_MS) {
+      // Admin has been inactive 30+ min → re-enable bot
+      await chatStore.toggleBot(businessId, userId, true).catch(() => {});
+      return NextResponse.json({ botEnabled: true, autoReEnabled: true });
+    }
+  }
+
+  return NextResponse.json({ botEnabled: convEnabled });
 }

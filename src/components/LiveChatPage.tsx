@@ -227,23 +227,43 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     } catch {}
   }, [businessId]);
 
-  // ── Polling ──
+  // ── Polling — visibility-aware ──
+  // Conversation list: 2s when tab active, paused when hidden
+  // Messages: 1.5s when tab active, paused when hidden
   useEffect(() => {
     fetchConversations();
     fetchFollowups();
     fetchTemplates();
-    pollRef.current = setInterval(() => {
-      fetchConversations();
-    }, 5000);
+
+    let paused = false;
+    const startConvPoll = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(() => {
+        if (!paused) fetchConversations();
+      }, 2000);
+    };
+    const handleVisibility = () => {
+      paused = document.hidden;
+      if (!document.hidden) {
+        fetchConversations(); // immediate refresh on tab focus
+      }
+    };
+
+    startConvPoll();
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [fetchConversations, fetchFollowups, fetchTemplates]);
 
   useEffect(() => {
     if (activeUserId) {
       fetchMessages();
-      msgPollRef.current = setInterval(fetchMessages, 3000);
+      if (msgPollRef.current) clearInterval(msgPollRef.current);
+      msgPollRef.current = setInterval(() => {
+        if (!document.hidden) fetchMessages();
+      }, 1500);
     }
     return () => {
       if (msgPollRef.current) clearInterval(msgPollRef.current);

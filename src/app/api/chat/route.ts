@@ -101,9 +101,10 @@ export async function POST(req: NextRequest) {
     const { content: pipelineContent, trace: pipelineTrace } = pipelineResult;
 
     // ══════════════════════════════════════════════════════
-    // STEP 2: If pipeline resolved (layers 0-13), return it
+    // STEP 2: If pipeline resolved (layers 0-14), return it
+    // Layer 15 = Default Fallback → escalate to AI Agent
     // ══════════════════════════════════════════════════════
-    if (pipelineTrace.finalLayer < 14) {
+    if (pipelineTrace.finalLayer < 15) {
       return NextResponse.json({
         content: pipelineContent,
         trace: pipelineTrace,

@@ -49,6 +49,8 @@ export interface ChatConversation {
   /** Admin who has claimed/assigned this conversation */
   assignedAdmin?: string;
   assignedAt?: number;
+  /** Timestamp of last admin message — used for auto re-enable after inactivity */
+  adminLastReplyAt?: number;
 }
 
 export interface ChatMessage {
@@ -371,6 +373,10 @@ class ChatStore {
       if (msg.role === "customer") {
         conv.unreadCount++;
       }
+      // Track last admin reply time for auto re-enable handoff
+      if (msg.role === "admin") {
+        conv.adminLastReplyAt = msg.timestamp;
+      }
       await setJSON(ck, conv);
       // Update sorted set score
       await redis.zadd(convsKey(businessId), msg.timestamp, userId);
@@ -434,6 +440,11 @@ class ChatStore {
       return true;
     }
     return false;
+  }
+
+  /** Get a single conversation by userId */
+  async getConversation(businessId: string, userId: string): Promise<ChatConversation | null> {
+    return getJSON<ChatConversation>(convKey(businessId, userId));
   }
 
   /** Check if bot is enabled for a conversation */

@@ -97,14 +97,21 @@ export async function runAgentLoop(
   const systemPrompt = buildAgentSystemPrompt(biz, offHoursNote);
 
   // Build message history for OpenAI (last 10 messages for context window)
-  const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = conversationHistory
-    .slice(-10)
+  // Exclude the last message if it duplicates userMessage (chat/route already appends it below)
+  const historySlice = conversationHistory.slice(-10);
+  const lastMsg = historySlice[historySlice.length - 1];
+  const historyWithoutLastUser =
+    lastMsg?.role === "user" && lastMsg.content === userMessage
+      ? historySlice.slice(0, -1)
+      : historySlice;
+
+  const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = historyWithoutLastUser
     .map((m) => ({
       role: m.role as "user" | "assistant" | "system",
       content: m.content,
     }));
 
-  // Current conversation state
+  // Current conversation state — userMessage appended exactly once
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...historyMessages,

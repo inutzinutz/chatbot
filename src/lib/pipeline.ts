@@ -1120,8 +1120,21 @@ export function generatePipelineResponseWithTrace(
             .join("\n");
           intentResponse = `แบตเตอรี่ LiFePO4 สำหรับรถ EV ยอดนิยมครับ\n\n${list}\n\nบอกรุ่นรถที่ใช้อยู่ผมจะแจ้งรุ่นที่เข้ากันได้เลยครับ!`;
         } else {
-          // No clear context — ask what they're looking for
-          intentResponse = `ยินดีช่วยแนะนำครับ! EV Life Thailand มีสินค้าสองกลุ่มหลักครับ\n\n**1. มอเตอร์ไซค์ไฟฟ้า EM** (38,900 – 87,200 บาท)\n- EM Qarez — 38,900 บาท\n- EM Legend — 39,900 บาท\n- EM Legend Pro — 49,900 บาท\n- EM Enzo — 58,900 บาท\n- EM Milano — 59,900 บาท\n- EM Owen Long Range — 87,200 บาท\n\n**2. แบตเตอรี่ 12V LiFePO4** สำหรับรถยนต์ไฟฟ้า (4,900 – 7,500 บาท)\n- รองรับ BYD, Tesla, MG, Neta, Volvo, BMW, Mercedes ฯลฯ\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
+          // No clear context — build from live catalog (no hardcoded prices)
+          const allActive = biz.getActiveProducts();
+          const cats = biz.getCategories();
+          const catSummaries = cats.map((cat) => {
+            const items = allActive.filter((p) => p.category === cat);
+            if (items.length === 0) return null;
+            const minPrice = Math.min(...items.map((p) => p.price));
+            const maxPrice = Math.max(...items.map((p) => p.price));
+            const priceRange = minPrice === maxPrice
+              ? `${minPrice.toLocaleString()} บาท`
+              : `${minPrice.toLocaleString()} – ${maxPrice.toLocaleString()} บาท`;
+            const sample = items.slice(0, 3).map((p) => `- ${p.name}`).join("\n");
+            return `**${cat}** (${priceRange})\n${sample}${items.length > 3 ? `\n- ...และอีก ${items.length - 3} รายการ` : ""}`;
+          }).filter(Boolean).join("\n\n");
+          intentResponse = `ยินดีช่วยแนะนำครับ! ${biz.name} มีสินค้าดังนี้ครับ\n\n${catSummaries}\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
         }
         break;
       }
@@ -1333,47 +1346,48 @@ export function generatePipelineResponseWithTrace(
   }
   addStep(12, "Category Specific", "ค้นหาตามหมวดเฉพาะ", "skipped", t);
 
-  // ── CLARIFICATION CHECK ──
-  // Detect ambiguity before falling to Layer 13/14 and ask bot clarify question.
+  // ── LAYER 13: Clarification ──
+  // Detect ambiguity before falling to Layer 14/15 and ask clarifying question.
   // Cases:
   //   A) Message is short/vague (≤8 chars or single word) → ask what they need
   //   B) Intent score exists but below threshold (1–1.9) → ask to confirm topic
   //   C) Top-2 intent scores are close (within 1 point) → ask to disambiguate
-  //   D) Pipeline reached here (L13/14) without resolving a product → ask clarify
+  t = now();
   {
     const clarifyResult = buildClarifyResponse(userMessage, allScores, ctx, biz);
     if (clarifyResult) {
-      addStep(12, "Clarification", "ข้อความคลุมเครือ — ถามเพิ่มเติม", "matched", t, {
+      addStep(13, "Clarification", "ข้อความคลุมเครือ — ถามเพิ่มเติม", "matched", t, {
         intent: "clarify",
         allScores: allScores.slice(0, 3).map((s) => ({ intent: s.intent.name, score: s.score })),
       });
-      finalLayer = 12;
+      finalLayer = 13;
       finalLayerName = "Clarification";
       const result = finishTrace(clarifyResult.question);
       result.clarifyOptions = clarifyResult.options;
       return result;
     }
   }
+  addStep(13, "Clarification", "ไม่มีความคลุมเครือ", "skipped", t);
 
-  // ── LAYER 13: Context-aware fallback ──
+  // ── LAYER 14: Context-aware fallback ──
   t = now();
   if (ctx.activeProduct && allMessages.length > 2) {
     const p = ctx.activeProduct;
-    addStep(13, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "matched", t, {
+    addStep(14, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "matched", t, {
       matchedProducts: [p.name],
     });
-    finalLayer = 13;
+    finalLayer = 14;
     finalLayerName = `Context Fallback: ${p.name}`;
     return finishTrace(
       `เกี่ยวกับ **${p.name}** ครับ:\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสนใจสอบถามเรื่องไหนเพิ่มเติมครับ?\n- รายละเอียดสเปค\n- ประกัน\n- การสั่งซื้อ\n\nหรือจะดูสินค้าอื่นก็บอกได้เลยครับ!`
     );
   }
-  addStep(13, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "skipped", t);
+  addStep(14, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "skipped", t);
 
-  // ── LAYER 14: Default fallback ──
+  // ── LAYER 15: Default fallback ──
   t = now();
-  addStep(14, "Default Fallback", "ข้อความตอบกลับเริ่มต้น", "matched", t);
-  finalLayer = 14;
+  addStep(15, "Default Fallback", "ข้อความตอบกลับเริ่มต้น", "matched", t);
+  finalLayer = 15;
   finalLayerName = "Default Fallback";
 
   return finishTrace(biz.defaultFallbackMessage);
@@ -1394,8 +1408,9 @@ export function generatePipelineResponseWithTrace(
       [10, "Product Search", "ค้นหาสินค้า"],
       [11, "Category Browse", "แสดงหมวดหมู่"],
       [12, "Category Specific", "ค้นหาตามหมวดเฉพาะ"],
-      [13, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback"],
-      [14, "Default Fallback", "ข้อความตอบกลับเริ่มต้น"],
+      [13, "Clarification",    "ข้อความคลุมเครือ — ถามเพิ่มเติม"],
+      [14, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback"],
+      [15, "Default Fallback", "ข้อความตอบกลับเริ่มต้น"],
     ];
 
     for (const [layer, name, desc] of allLayerDefs) {
