@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search,
   Send,
@@ -115,6 +115,14 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [editFollowupMsg, setEditFollowupMsg] = useState("");
   const [editingFollowup, setEditingFollowup] = useState(false);
   const [sendingFollowup, setSendingFollowup] = useState(false);
+
+  // ── Full-text search state ──
+  const [searchResults, setSearchResults] = useState<{
+    userId: string; displayName: string; pictureUrl?: string;
+    lastMessage: string; lastMessageAt: number; snippet?: string; pinned?: boolean; botEnabled: boolean;
+  }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   // ── CRM Notes state ──
   const [notes, setNotes] = useState<import("@/lib/chatStore").CRMNote[]>([]);
@@ -245,6 +253,29 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // ── Debounced full-text search ──
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (searchText.length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(
+          `/api/search?businessId=${encodeURIComponent(businessId)}&q=${encodeURIComponent(searchText)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setSearchResults(data.results || []);
+        }
+      } catch {}
+      setSearching(false);
+    }, 400);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchText, businessId]);
 
   // ── Mark as read when selecting conversation ──
   const selectConversation = async (userId: string) => {
@@ -579,7 +610,18 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   // ── Filtered conversations ──
   const pinnedCount = conversations.filter((c) => c.pinned).length;
 
+  // When search query >= 3 chars, use API search results (full-text); else client-side filter
+  const isFullTextSearch = searchText.length >= 3;
+
   const filtered = (() => {
+    if (isFullTextSearch) {
+      // Map search results back to conversations (to get full conv data) with snippet info attached
+      return searchResults.map((r) => {
+        const conv = conversations.find((c) => c.userId === r.userId);
+        return conv ? { ...conv, _snippet: r.snippet } : null;
+      }).filter(Boolean) as (import("@/lib/chatStore").ChatConversation & { _snippet?: string })[];
+    }
+
     let list = conversations;
     if (filterTab === "pinned") {
       list = list.filter((c) => c.pinned);
@@ -592,7 +634,7 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
           c.lastMessage.toLowerCase().includes(searchText.toLowerCase())
       );
     }
-    return list;
+    return list as (import("@/lib/chatStore").ChatConversation & { _snippet?: string })[];
   })();
 
   const activeConv = conversations.find((c) => c.userId === activeUserId);
@@ -706,10 +748,18 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Search conversations..."
+                placeholder="ค้นหา... (≥3 ตัวอักษร = ค้นในข้อความด้วย)"
                 className="w-full pl-9 pr-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
               />
             </div>
+          )}
+          {/* Search status */}
+          {searchText.length >= 3 && (
+            <p className="text-[10px] text-gray-400 px-1 pt-1.5">
+              {searching
+                ? "กำลังค้นหา..."
+                : `พบ ${filtered.length} รายการ สำหรับ "${searchText}"`}
+            </p>
           )}
         </div>
 
@@ -895,6 +945,12 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                     <p className="text-[10px] text-indigo-500 mt-0.5 flex items-center gap-1">
                       <Shield className="h-2.5 w-2.5" />
                       {conv.assignedAdmin}
+                    </p>
+                  )}
+                  {/* Search snippet */}
+                  {"_snippet" in conv && conv._snippet && (
+                    <p className="text-[10px] text-yellow-700 bg-yellow-50 rounded px-1 py-0.5 mt-0.5 truncate border border-yellow-100">
+                      ...{conv._snippet}...
                     </p>
                   )}
                 </div>
