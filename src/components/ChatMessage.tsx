@@ -12,6 +12,7 @@ interface ChatMessageProps {
   isLoading?: boolean;
   timestamp?: string;
   trace?: PipelineTrace;
+  showTrace?: boolean; // default false — only admin views pass true
 }
 
 function formatMessage(content: string) {
@@ -55,6 +56,7 @@ export default function ChatMessage({
   isLoading,
   timestamp,
   trace,
+  showTrace = false,
 }: ChatMessageProps) {
   const isUser = role === "user";
 
@@ -125,8 +127,8 @@ export default function ChatMessage({
           </div>
         )}
 
-        {/* Pipeline Trace Panel — only for assistant messages */}
-        {!isUser && !isLoading && trace && (
+        {/* Pipeline Trace Panel — only for admin views (showTrace=true) */}
+        {!isUser && !isLoading && trace && showTrace && (
           <PipelineTracePanel trace={trace} />
         )}
       </div>
