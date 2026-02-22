@@ -77,7 +77,7 @@ export const channels: ChannelInfo[] = [
       accessToken: "",
       richMenuEnabled: true,
       richMenuId: "",
-      webhookUrl: "/api/line/webhook/dji13service",
+      webhookUrl: "/api/line/webhook?businessId=dji13service",
       useReplyApi: true,
     },
   },
@@ -85,4 +85,51 @@ export const channels: ChannelInfo[] = [
 
 export function getChannel(type: ChannelType): ChannelInfo | undefined {
   return channels.find((c) => c.type === type);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Business Hours Check                                              */
+/* ------------------------------------------------------------------ */
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * Check if current Bangkok time is within DJI 13 Service Plus business hours.
+ * Mon–Fri 09:00–18:00, Sat 09:00–16:00, Sun closed.
+ */
+export function isWithinBusinessHours(): boolean {
+  const bkk = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" })
+  );
+  const dayName = DAY_NAMES[bkk.getDay()];
+  const hhmm = bkk.getHours() * 60 + bkk.getMinutes();
+
+  const schedule = DEFAULT_SCHEDULE.find((s) => s.day === dayName);
+  if (!schedule || !schedule.active) return false;
+
+  const [openH, openM] = schedule.open.split(":").map(Number);
+  const [closeH, closeM] = schedule.close.split(":").map(Number);
+  const openMin = openH * 60 + openM;
+  const closeMin = closeH * 60 + closeM;
+
+  return hhmm >= openMin && hhmm < closeMin;
+}
+
+/**
+ * Build the off-hours message shown to customers of DJI 13 Service Plus.
+ */
+export function buildOffHoursMessage(): string {
+  const bkk = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" })
+  );
+  const hh = String(bkk.getHours()).padStart(2, "0");
+  const mm = String(bkk.getMinutes()).padStart(2, "0");
+
+  return (
+    `ขณะนี้เวลา ${hh}:${mm} น. อยู่นอกเวลาทำการครับ\n\n` +
+    `⏰ **เวลาทำการ**: จันทร์–ศุกร์ 09:00–18:00 น. | เสาร์ 09:00–16:00 น. | อาทิตย์ปิดครับ\n\n` +
+    `ทิ้งข้อความไว้ได้เลยครับ ทีมงานจะตอบกลับทันทีเมื่อเปิดทำการ\n\n` +
+    `📱 **LINE**: @dji13service\n` +
+    `📞 **โทร**: 065-694-6155`
+  );
 }

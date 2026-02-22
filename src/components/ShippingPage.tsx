@@ -104,6 +104,44 @@ const SEED_SHIPPING: Record<string, ShippingRule[]> = {
       active: true,
     },
   ],
+  dji13service: [
+    {
+      id: 1,
+      zone: "รับที่ร้าน (Walk-in)",
+      description: "นำโดรนมาที่ร้าน DJI 13 Service Plus โดยตรง ประเมินฟรีทันที",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "รอประเมิน 1-2 ชั่วโมง | ซ่อมตามสภาพ",
+      active: true,
+    },
+    {
+      id: 2,
+      zone: "ส่งซ่อมทางไปรษณีย์ (ส่งมาที่ร้าน)",
+      description: "ลูกค้าออกค่าส่งมาเอง แนะนำ Kerry / Flash Express ห่อกล่องให้แน่น แจ้ง LINE ก่อนส่งทุกครั้ง",
+      fee: 0,
+      freeAbove: null,
+      estimatedDays: "รอรับ 1-2 วัน | ซ่อมตามสภาพ",
+      active: true,
+    },
+    {
+      id: 3,
+      zone: "ส่งคืน (ค่าส่งกลับ)",
+      description: "ค่าส่งกลับลูกค้าออก — โอนล่วงหน้าหรือชำระพร้อมค่าซ่อม ทั่วประเทศ Kerry / Flash",
+      fee: 60,
+      freeAbove: 5000,
+      estimatedDays: "1-3 วันทำการหลังส่ง",
+      active: true,
+    },
+    {
+      id: 4,
+      zone: "ส่งคืน Express (ด่วน)",
+      description: "บริการจัดส่งด่วนคืนโดรนที่ซ่อมแล้ว ภายใน 1 วัน",
+      fee: 150,
+      freeAbove: null,
+      estimatedDays: "1 วันทำการ",
+      active: true,
+    },
+  ],
 };
 
 function RuleModal({

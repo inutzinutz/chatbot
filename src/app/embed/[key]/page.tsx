@@ -9,11 +9,13 @@ interface EmbedConfig {
 
 /** Map of valid embed keys to their business config */
 const EMBED_KEY_MAP: Record<string, EmbedConfig> = {
-  script_4x9xsyeyuk8: { businessId: "dji13store",     name: "DJI 13 STORE",          color: "#ef4444" },
-  script_demo:        { businessId: "dji13store",     name: "DJI 13 STORE Demo",     color: "#ef4444" },
-  script_test:        { businessId: "dji13store",     name: "DJI 13 STORE Test",     color: "#ef4444" },
-  evlifethailand:     { businessId: "evlifethailand", name: "EV Life Thailand",       color: "#f97316" },
-  evlife_demo:        { businessId: "evlifethailand", name: "EV Life Thailand Demo",  color: "#f97316" },
+  script_4x9xsyeyuk8:  { businessId: "dji13store",     name: "DJI 13 STORE",               color: "#ef4444" },
+  script_demo:          { businessId: "dji13store",     name: "DJI 13 STORE Demo",          color: "#ef4444" },
+  script_test:          { businessId: "dji13store",     name: "DJI 13 STORE Test",          color: "#ef4444" },
+  evlifethailand:       { businessId: "evlifethailand", name: "EV Life Thailand",            color: "#f97316" },
+  evlife_demo:          { businessId: "evlifethailand", name: "EV Life Thailand Demo",       color: "#f97316" },
+  script_dji13service:  { businessId: "dji13service",   name: "DJI 13 Service Plus",         color: "#ef4444" },
+  dji13service_demo:    { businessId: "dji13service",   name: "DJI 13 Service Plus Demo",    color: "#ef4444" },
 };
 
 export default async function EmbedPage({

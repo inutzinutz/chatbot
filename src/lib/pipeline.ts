@@ -750,22 +750,27 @@ export function generatePipelineResponseWithTrace(
     });
   };
 
-  // ── OFF-HOURS CHECK (evlifethailand only) ──
+  // ── OFF-HOURS CHECK ──
   // Runs before all layers — if outside business hours, append a soft notice
   // but still allow the bot to answer (non-blocking).
   let offHoursSuffix = "";
   let suppressSuffix = false;
-  if (biz.id === "evlifethailand") {
+  if (biz.id === "evlifethailand" || biz.id === "dji13service") {
     try {
-      // Dynamic import guard: this module is only used server-side
-      const { isWithinBusinessHours, buildOffHoursMessage } =
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("@/lib/evlife/channels") as {
-          isWithinBusinessHours: () => boolean;
-          buildOffHoursMessage: () => string;
-        };
-      if (!isWithinBusinessHours()) {
-        offHoursSuffix = "\n\n---\n" + buildOffHoursMessage();
+      const channelModule =
+        biz.id === "evlifethailand"
+          ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+            (require("@/lib/evlife/channels") as {
+              isWithinBusinessHours: () => boolean;
+              buildOffHoursMessage: () => string;
+            })
+          : // eslint-disable-next-line @typescript-eslint/no-require-imports
+            (require("@/lib/dji13service/channels") as {
+              isWithinBusinessHours: () => boolean;
+              buildOffHoursMessage: () => string;
+            });
+      if (!channelModule.isWithinBusinessHours()) {
+        offHoursSuffix = "\n\n---\n" + channelModule.buildOffHoursMessage();
       }
     } catch {
       // Ignore — channels module unavailable in edge runtime; webhook handles separately

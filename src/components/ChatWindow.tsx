@@ -9,7 +9,10 @@ import type { PipelineTrace } from "@/lib/inspector";
 import { trackChatEvent } from "@/lib/chatEvents";
 import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
-const PDPA_STORAGE_KEY = "evlife_pdpa_consent_v1";
+// PDPA consent key is scoped per BU so clearing one BU's consent doesn't affect others
+function getPdpaStorageKey(businessId: string) {
+  return `pdpa_consent_v1_${businessId}`;
+}
 
 interface Message {
   id: string;
@@ -39,6 +42,12 @@ const WELCOME_MESSAGES: Record<string, Message> = {
     content:
       "สวัสดีครับ! ยินดีต้อนรับสู่ **EV Life Thailand** ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM\n\nผมช่วยอะไรได้บ้างครับ?\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- สอบถามราคา/โปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลย\nหรือ **แนบรูปภาพ/PDF** เพื่อให้ AI วิเคราะห์ได้เลยครับ!",
   },
+  dji13service: {
+    id: "welcome",
+    role: "assistant",
+    content:
+      "สวัสดีครับ! ยินดีต้อนรับสู่ **DJI 13 Service Plus** ศูนย์ซ่อมและบริการโดรน DJI ครบวงจร\n\nผมช่วยอะไรได้บ้างครับ?\n- ส่งซ่อมโดรน DJI ทุกรุ่น (ประเมินฟรี)\n- เคลม DJI Care Refresh\n- กรณีฉุกเฉิน — โดรนตกน้ำ / Flyaway\n- วินิจฉัย Error Code\n- อะไหล่แท้ DJI\n- ส่งซ่อมทางไปรษณีย์ได้ (ต่างจังหวัด)\n\nลองพิมพ์ปัญหา เช่น **'กิมบอลสั่น'** หรือ **'error motor'**\nหรือ **แนบรูปความเสียหาย** เพื่อให้ AI วิเคราะห์ได้เลยครับ!",
+  },
 };
 
 function getWelcomeMessage(businessId: string): Message {
@@ -59,21 +68,20 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
   const [showQuickReplies, setShowQuickReplies] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // ── PDPA consent state ──
+  // ── PDPA consent state (scoped per BU) ──
   const [pdpaConsented, setPdpaConsented] = useState<boolean>(false);
   useEffect(() => {
-    // Check localStorage on mount (client-side only)
     try {
-      const stored = localStorage.getItem(PDPA_STORAGE_KEY);
+      const stored = localStorage.getItem(getPdpaStorageKey(businessId));
       setPdpaConsented(stored === "1");
     } catch {
       setPdpaConsented(false);
     }
-  }, []);
+  }, [businessId]);
 
   const acceptPdpa = () => {
     try {
-      localStorage.setItem(PDPA_STORAGE_KEY, "1");
+      localStorage.setItem(getPdpaStorageKey(businessId), "1");
     } catch { /* ignore storage errors */ }
     setPdpaConsented(true);
     trackChatEvent({ type: "session_start" });
@@ -430,7 +438,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
 
       {/* Quick Replies */}
       {showQuickReplies && (
-        <QuickReplies onSelect={(text) => sendText(text)} disabled={isLoading} />
+        <QuickReplies onSelect={(text) => sendText(text)} disabled={isLoading} businessId={businessId} />
       )}
 
       {/* Input */}
