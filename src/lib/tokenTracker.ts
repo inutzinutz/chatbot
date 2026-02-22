@@ -40,6 +40,9 @@ export type CallSite =
   | "line_openai"
   | "line_vision_image"
   | "line_vision_pdf"
+  | "fb_claude"
+  | "fb_openai"
+  | "fb_vision_image"
   | "monitoring_summary";
 
 // ── Types ──

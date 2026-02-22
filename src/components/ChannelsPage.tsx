@@ -888,6 +888,38 @@ function ChannelDetail({
     setSaving(true);
     setSaveError(null);
 
+    // For FACEBOOK channels — persist settings to Redis via API
+    if (channel.type === "FACEBOOK" && channel.facebook) {
+      try {
+        const payload = {
+          pageId: channel.facebook.pageId,
+          pageUrl: channel.facebook.pageUrl,
+          pageAccessToken: channel.facebook.pageAccessToken,
+          verifyToken: channel.facebook.verifyToken,
+          persistentMenu: channel.facebook.persistentMenu,
+          iceBreakers: channel.facebook.iceBreakers,
+          getStartedPayload: channel.facebook.getStartedPayload,
+          autoReply: channel.common.autoReply,
+          welcomeMessage: channel.common.welcomeMessage,
+        };
+        const res = await fetch(`/api/facebook/settings/${businessId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+          setSaveError(errData.error || `HTTP ${res.status}`);
+          setSaving(false);
+          return;
+        }
+      } catch (err) {
+        setSaveError(String(err));
+        setSaving(false);
+        return;
+      }
+    }
+
     // For LINE channels — persist settings to server via API
     if (channel.type === "LINE" && channel.line) {
       try {
