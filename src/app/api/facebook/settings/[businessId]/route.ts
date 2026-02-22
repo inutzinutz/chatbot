@@ -45,7 +45,20 @@ const redisKey = (businessId: string) => `fbsettings:${businessId}`;
 
 async function getRedis() {
   const g = globalThis as unknown as { __redis?: import("ioredis").default };
-  return g.__redis ?? null;
+  if (g.__redis) return g.__redis;
+
+  const url = process.env.REDIS_URL || process.env.KV_URL || "";
+  if (!url) return null;
+
+  try {
+    const Redis = (await import("ioredis")).default;
+    const client = new Redis(url, { lazyConnect: false, maxRetriesPerRequest: 2, connectTimeout: 5000 });
+    client.on("error", () => {});
+    g.__redis = client;
+    return client;
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------ */
