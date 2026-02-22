@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import ChatMessage from "./ChatMessage";
-import ChatInput from "./ChatInput";
+import ChatInput, { type AttachedFile } from "./ChatInput";
 import QuickReplies from "./QuickReplies";
-import { Bot, RotateCcw } from "lucide-react";
+import { Bot, RotateCcw, FileText } from "lucide-react";
 import type { PipelineTrace } from "@/lib/inspector";
 import { trackChatEvent } from "@/lib/chatEvents";
+import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 interface Message {
   id: string;
@@ -15,9 +16,13 @@ interface Message {
   trace?: PipelineTrace;
   clarifyOptions?: string[];
   isStreaming?: boolean;
+  /** For user messages with an attached file */
+  attachment?: {
+    name: string;
+    mimeType: string;
+    previewUrl?: string;
+  };
 }
-
-import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 
 const WELCOME_MESSAGES: Record<string, Message> = {
   dji13store: {
@@ -30,7 +35,7 @@ const WELCOME_MESSAGES: Record<string, Message> = {
     id: "welcome",
     role: "assistant",
     content:
-      "สวัสดีครับ! ยินดีต้อนรับสู่ **EV Life Thailand** ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM\n\nผมช่วยอะไรได้บ้างครับ?\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- สอบถามราคา/โปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลยครับ!",
+      "สวัสดีครับ! ยินดีต้อนรับสู่ **EV Life Thailand** ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM\n\nผมช่วยอะไรได้บ้างครับ?\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- สอบถามราคา/โปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลย\nหรือ **แนบรูปภาพ/PDF** เพื่อให้ AI วิเคราะห์ได้เลยครับ!",
   },
 };
 
@@ -48,6 +53,9 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([getWelcomeMessage(businessId)]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showQuickReplies, setShowQuickReplies] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Reset messages when businessId changes
   useEffect(() => {
@@ -55,9 +63,6 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     setShowQuickReplies(true);
     setIsLoading(false);
   }, [businessId]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showQuickReplies, setShowQuickReplies] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,7 +72,73 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     scrollToBottom();
   }, [messages, isLoading, scrollToBottom]);
 
-  const sendMessage = async (content: string) => {
+  // ── File (vision) path ──────────────────────────────────────────
+  const sendFile = async (file: AttachedFile, userPrompt: string) => {
+    const startedAt = Date.now();
+    const minThinkingMs = 850;
+
+    // Show user message with file attachment
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: userPrompt || `[ส่งไฟล์: ${file.name}]`,
+      attachment: {
+        name: file.name,
+        mimeType: file.mimeType,
+        previewUrl: file.previewUrl,
+      },
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
+    setShowQuickReplies(false);
+
+    trackChatEvent({
+      type: "message_sent",
+      messageLength: userPrompt.length,
+      messagePreview: `[file: ${file.name}] ${userPrompt.slice(0, 80)}`,
+    });
+
+    try {
+      const resp = await fetch("/api/vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileData: file.dataBase64,
+          mimeType: file.mimeType,
+          fileName: file.name,
+          userPrompt: userPrompt || undefined,
+          businessId,
+        }),
+      });
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
+
+      const data = await resp.json() as { content?: string; error?: string };
+
+      const assistantMessage: Message = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: data.content || data.error || "ไม่สามารถวิเคราะห์ไฟล์ได้ครับ",
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: "ขออภัยครับ เกิดข้อผิดพลาดในการวิเคราะห์ไฟล์ กรุณาลองใหม่ครับ",
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Text chat path ──────────────────────────────────────────────
+  const sendText = async (content: string) => {
     const startedAt = Date.now();
     const minThinkingMs = 850;
 
@@ -81,7 +152,6 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     setIsLoading(true);
     setShowQuickReplies(false);
 
-    // Track outgoing message
     trackChatEvent({
       type: "message_sent",
       messageLength: content.length,
@@ -103,7 +173,6 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
       const contentType = response.headers.get("content-type") || "";
 
       if (contentType.includes("text/event-stream")) {
-        // Handle streaming response
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let assistantContent = "";
@@ -112,36 +181,23 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
 
         const maybeFlushFirstToken = async () => {
           if (assistantId) return;
-
           const elapsed = Date.now() - startedAt;
-          if (elapsed < minThinkingMs) {
-            await sleep(minThinkingMs - elapsed);
-          }
-
+          if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
           assistantId = `assistant-${Date.now()}`;
           setMessages((prev) => [
             ...prev,
-            {
-              id: assistantId!,
-              role: "assistant",
-              content: assistantContent,
-              trace: streamTrace,
-            },
+            { id: assistantId!, role: "assistant", content: assistantContent, trace: streamTrace },
           ]);
           setIsLoading(false);
         };
 
         if (reader) {
-          let sseBuffer = ""; // buffer for incomplete SSE lines across chunks
-
+          let sseBuffer = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
-            // { stream: true } keeps incomplete UTF-8 multibyte chars buffered
             sseBuffer += decoder.decode(value, { stream: true });
             const lines = sseBuffer.split("\n");
-            // Keep the last (possibly incomplete) line in the buffer
             sseBuffer = lines.pop() || "";
 
             for (const line of lines) {
@@ -152,13 +208,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
                 if (data === "[DONE]") break;
                 try {
                   const parsed = JSON.parse(data);
-
-                  // Check if this is a trace event
-                  if (parsed.trace) {
-                    streamTrace = parsed.trace as PipelineTrace;
-                    continue;
-                  }
-
+                  if (parsed.trace) { streamTrace = parsed.trace as PipelineTrace; continue; }
                   if (parsed.content) {
                     assistantContent += parsed.content;
                     if (!assistantId) {
@@ -173,18 +223,12 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
                       );
                     }
                   }
-                } catch {
-                  // skip malformed JSON — line may be incomplete, will retry next chunk
-                }
+                } catch { /* skip malformed */ }
               }
             }
           }
+          if (!assistantId) await maybeFlushFirstToken();
 
-          if (!assistantId) {
-            await maybeFlushFirstToken();
-          }
-
-          // Track streaming response
           if (streamTrace) {
             trackChatEvent({
               type: "response_received",
@@ -197,26 +241,23 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           }
         }
       } else {
-        // Handle JSON response (fallback mode)
         const data = await response.json();
-
         const elapsed = Date.now() - startedAt;
-        if (elapsed < minThinkingMs) {
-          await sleep(minThinkingMs - elapsed);
-        }
+        if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
 
         const trace = data.trace as PipelineTrace | undefined;
-        const assistantMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: data.content,
-          trace,
-          clarifyOptions: data.clarifyOptions as string[] | undefined,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: data.content,
+            trace,
+            clarifyOptions: data.clarifyOptions as string[] | undefined,
+          },
+        ]);
         setIsLoading(false);
 
-        // Track fallback response
         trackChatEvent({
           type: "response_received",
           mode: trace?.mode,
@@ -227,14 +268,24 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
         });
       }
     } catch {
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        role: "assistant",
-        content:
-          "ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้งครับ 🙏",
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: "ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้งครับ",
+        },
+      ]);
       setIsLoading(false);
+    }
+  };
+
+  // ── Unified onSend from ChatInput ───────────────────────────────
+  const handleSend = (content: string, file?: AttachedFile) => {
+    if (file) {
+      sendFile(file, content);
+    } else if (content.trim()) {
+      sendText(content);
     }
   };
 
@@ -276,11 +327,31 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
       <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
         {messages.map((msg, idx) => (
           <div key={msg.id}>
+            {/* File attachment preview in user bubble */}
+            {msg.attachment && (
+              <div className="flex justify-end px-4 pb-1">
+                {msg.attachment.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={msg.attachment.previewUrl}
+                    alt={msg.attachment.name}
+                    className="max-h-48 max-w-[70%] rounded-xl object-cover shadow-sm"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2 text-sm text-indigo-700 max-w-[70%]">
+                    <FileText className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{msg.attachment.name}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <ChatMessage
               role={msg.role}
               content={msg.content}
               trace={msg.trace}
             />
+
             {/* Clarify option chips — only on last assistant message when not loading */}
             {msg.role === "assistant" &&
               msg.clarifyOptions &&
@@ -291,7 +362,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
                   {msg.clarifyOptions.map((opt) => (
                     <button
                       key={opt}
-                      onClick={() => sendMessage(opt)}
+                      onClick={() => sendText(opt)}
                       disabled={isLoading}
                       className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-100 transition-colors"
                     >
@@ -310,11 +381,11 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
 
       {/* Quick Replies */}
       {showQuickReplies && (
-        <QuickReplies onSelect={sendMessage} disabled={isLoading} />
+        <QuickReplies onSelect={(text) => sendText(text)} disabled={isLoading} />
       )}
 
       {/* Input */}
-      <ChatInput onSend={sendMessage} disabled={isLoading} maxLength={500} />
+      <ChatInput onSend={handleSend} disabled={isLoading} maxLength={500} />
     </div>
   );
 }

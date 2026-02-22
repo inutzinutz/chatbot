@@ -1,0 +1,255 @@
+/* ------------------------------------------------------------------ */
+/*  /api/vision — File analysis endpoint (Node.js runtime)             */
+/*                                                                      */
+/*  Accepts:                                                            */
+/*    - Images (JPEG, PNG, WEBP, GIF) → GPT-4o Vision                  */
+/*    - PDF → pdf-parse text → GPT-4o                                  */
+/*                                                                      */
+/*  POST body (JSON):                                                   */
+/*    { fileData: string (base64), mimeType: string,                   */
+/*      fileName: string, userPrompt?: string, businessId?: string }   */
+/*                                                                      */
+/*  Response: { content: string, fileType: string }                    */
+/* ------------------------------------------------------------------ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getBusinessConfig, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+
+export const runtime = "nodejs";
+
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const SUPPORTED_DOC_TYPES = ["application/pdf"];
+
+function buildVisionSystemPrompt(biz: ReturnType<typeof getBusinessConfig>): string {
+  return `คุณคือผู้ช่วย AI ของ ${biz.name} ที่เชี่ยวชาญด้าน ${biz.description || "สินค้าและบริการ"}
+คุณสามารถวิเคราะห์รูปภาพและเอกสารที่ผู้ใช้ส่งมาได้
+ตอบเป็นภาษาไทยเป็นหลัก กระชับ ตรงประเด็น และเป็นประโยชน์
+หากเห็นสินค้าหรืออุปกรณ์ที่เกี่ยวข้องกับ ${biz.name} ให้ระบุและแนะนำสินค้าที่เกี่ยวข้องได้`;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json() as {
+      fileData: string;      // base64 string (without data: prefix)
+      mimeType: string;      // e.g. "image/jpeg", "application/pdf"
+      fileName: string;
+      userPrompt?: string;
+      businessId?: string;
+    };
+
+    const { fileData, mimeType, fileName, userPrompt = "", businessId: reqBusinessId } = body;
+
+    if (!fileData || !mimeType) {
+      return NextResponse.json({ error: "fileData and mimeType are required" }, { status: 400 });
+    }
+
+    // Size check (base64 is ~4/3 of binary)
+    const approxBytes = Math.ceil(fileData.length * 0.75);
+    if (approxBytes > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: `ไฟล์ใหญ่เกิน ${MAX_FILE_SIZE_MB}MB กรุณาลดขนาดไฟล์ก่อนส่ง` },
+        { status: 413 }
+      );
+    }
+
+    const businessId = reqBusinessId || DEFAULT_BUSINESS_ID;
+    const biz = getBusinessConfig(businessId);
+    const systemPrompt = buildVisionSystemPrompt(biz);
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+    // ── IMAGE: send to GPT-4o Vision (or Claude if no OpenAI key) ──
+    if (SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+      const prompt = userPrompt
+        ? `ผู้ใช้ถามว่า: "${userPrompt}"\n\nกรุณาวิเคราะห์รูปภาพและตอบคำถาม`
+        : "กรุณาวิเคราะห์รูปภาพนี้และบอกว่าเห็นอะไร มีข้อมูลอะไรที่น่าสนใจ และเกี่ยวข้องกับสินค้า/บริการของเราอย่างไร";
+
+      // Try GPT-4o Vision first
+      if (openaiKey) {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            max_tokens: 1000,
+            messages: [
+              { role: "system", content: systemPrompt },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${mimeType};base64,${fileData}`,
+                      detail: "high",
+                    },
+                  },
+                  { type: "text", text: prompt },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const content = data.choices?.[0]?.message?.content || "ไม่สามารถวิเคราะห์รูปได้";
+          return NextResponse.json({ content, fileType: "image", fileName });
+        }
+      }
+
+      // Fallback: Claude Vision
+      if (anthropicKey) {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-opus-4-5",
+            max_tokens: 1000,
+            system: systemPrompt,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: mimeType,
+                      data: fileData,
+                    },
+                  },
+                  { type: "text", text: prompt },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const content = data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถวิเคราะห์รูปได้";
+          return NextResponse.json({ content, fileType: "image", fileName });
+        }
+      }
+
+      return NextResponse.json(
+        { error: "ไม่มี API key สำหรับวิเคราะห์รูปภาพ กรุณาตั้งค่า OPENAI_API_KEY หรือ ANTHROPIC_API_KEY" },
+        { status: 503 }
+      );
+    }
+
+    // ── PDF: extract text → GPT-4o ──
+    if (SUPPORTED_DOC_TYPES.includes(mimeType)) {
+      let extractedText = "";
+
+      try {
+        // Dynamically import pdf-parse (avoid edge runtime issues)
+        // pdf-parse v2 ships as ESM — handle both default and named export
+        const pdfParseModule = await import("pdf-parse");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pdfParse: (buf: Buffer) => Promise<{ text: string }> =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (pdfParseModule as any).default ?? (pdfParseModule as any);
+        const buffer = Buffer.from(fileData, "base64");
+        const pdfData = await pdfParse(buffer);
+        extractedText = pdfData.text?.trim() || "";
+      } catch (pdfErr) {
+        console.error("[vision] pdf-parse error:", pdfErr);
+        return NextResponse.json(
+          { error: "ไม่สามารถอ่าน PDF ได้ กรุณาตรวจสอบว่าไฟล์ไม่เสียหาย" },
+          { status: 422 }
+        );
+      }
+
+      if (!extractedText) {
+        return NextResponse.json(
+          { content: `ไฟล์ PDF "${fileName}" ไม่มีข้อความที่อ่านได้ (อาจเป็น PDF รูปภาพ) กรุณาส่งเป็นรูปภาพแทนครับ`, fileType: "pdf", fileName },
+        );
+      }
+
+      // Trim to ~4000 chars to stay within token budget
+      const trimmedText = extractedText.slice(0, 4000);
+      const prompt = userPrompt
+        ? `ผู้ใช้ถามว่า: "${userPrompt}"\n\nเนื้อหาในไฟล์ PDF "${fileName}":\n\n${trimmedText}`
+        : `ช่วยสรุปเนื้อหาสำคัญจากไฟล์ PDF "${fileName}" นี้ และบอกว่ามีส่วนใดที่เกี่ยวข้องกับสินค้า/บริการของเราบ้าง:\n\n${trimmedText}`;
+
+      const apiKey = openaiKey || anthropicKey;
+      if (!apiKey) {
+        return NextResponse.json(
+          { error: "ไม่มี API key สำหรับประมวลผลเอกสาร" },
+          { status: 503 }
+        );
+      }
+
+      if (openaiKey) {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            max_tokens: 1000,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: prompt },
+            ],
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const content = data.choices?.[0]?.message?.content || "ไม่สามารถสรุปเอกสารได้";
+          return NextResponse.json({ content, fileType: "pdf", fileName });
+        }
+      }
+
+      if (anthropicKey) {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5",
+            max_tokens: 1000,
+            system: systemPrompt,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const content = data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถสรุปเอกสารได้";
+          return NextResponse.json({ content, fileType: "pdf", fileName });
+        }
+      }
+    }
+
+    // Unsupported file type
+    return NextResponse.json(
+      {
+        error: `ประเภทไฟล์ "${mimeType}" ยังไม่รองรับ\n\nรองรับ: รูปภาพ (JPEG, PNG, WEBP, GIF) และ PDF`,
+      },
+      { status: 415 }
+    );
+  } catch (err) {
+    console.error("[vision] error:", err);
+    return NextResponse.json({ error: "เกิดข้อผิดพลาด กรุณาลองใหม่" }, { status: 500 });
+  }
+}
