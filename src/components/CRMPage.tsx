@@ -105,8 +105,8 @@ function ProfileModal({
     setForm((f) => ({ ...f, interestedProducts: f.interestedProducts?.filter((x) => x !== p) }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-[520px] max-h-[85vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl w-full sm:w-[520px] max-h-[90dvh] flex flex-col overflow-hidden">
         {/* Modal header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
@@ -123,21 +123,21 @@ function ProfileModal({
         {/* Form */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Row 1 */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField icon={<User className="h-3.5 w-3.5" />} label="ชื่อจริง" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="ชื่อ-นามสกุล" />
             <FormField icon={<Phone className="h-3.5 w-3.5" />} label="เบอร์โทร" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="0XX-XXX-XXXX" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField icon={<Mail className="h-3.5 w-3.5" />} label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="email@example.com" />
             <FormField icon={<MapPin className="h-3.5 w-3.5" />} label="จังหวัด" value={form.province} onChange={(v) => setForm((f) => ({ ...f, province: v }))} placeholder="กรุงเทพฯ" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField icon={<Briefcase className="h-3.5 w-3.5" />} label="อาชีพ" value={form.occupation} onChange={(v) => setForm((f) => ({ ...f, occupation: v }))} placeholder="พนักงานบริษัท" />
             <FormField icon={<ShoppingBag className="h-3.5 w-3.5" />} label="งบประมาณ" value={form.budget} onChange={(v) => setForm((f) => ({ ...f, budget: v }))} placeholder="10,000 บาท" />
           </div>
 
           {/* Intent + Stage */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <p className="text-[10px] text-gray-400 flex items-center gap-1"><Flame className="h-3 w-3" /> ระดับความสนใจ</p>
               <select
@@ -429,7 +429,7 @@ export default function CRMPage({ businessId }: CRMPageProps) {
         </div>
 
         {/* ── Stats Cards ── */}
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {[
             { label: "ทั้งหมด",    value: stats.total,     color: "text-gray-700",    bg: "bg-white" },
             { label: "Hot 🔥",     value: stats.hot,       color: "text-red-600",     bg: "bg-red-50" },

@@ -28,6 +28,7 @@ import {
   Activity,
   LineChart,
   Users,
+  X,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { businessUnitList } from "@/lib/businessUnits";
@@ -65,6 +66,9 @@ interface SidebarProps {
   onBusinessChange: (id: string) => void;
   authUser: AuthUser;
   onLogout: () => void;
+  /** Mobile: controlled open state */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const NAV_SECTIONS = [
@@ -114,6 +118,8 @@ export default function Sidebar({
   onBusinessChange,
   authUser,
   onLogout,
+  mobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [bizMenuOpen, setBizMenuOpen] = useState(false);
@@ -140,10 +146,27 @@ export default function Sidebar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [bizMenuOpen]);
 
-  return (
+  // Close mobile sidebar on Escape
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onMobileClose?.();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mobileOpen, onMobileClose]);
+
+  const handleNavigate = (page: PageId) => {
+    onNavigate(page);
+    onMobileClose?.(); // auto-close on mobile after navigation
+  };
+
+  const navContent = (
     <nav
       className={cn(
-        "flex flex-col bg-white border-r border-gray-200 transition-all duration-300 h-full",
+        "flex flex-col bg-white border-r border-gray-200 h-full transition-all duration-300",
+        // Desktop: normal flow, collapsible
+        "hidden md:flex",
         collapsed ? "w-[68px]" : "w-[240px]"
       )}
     >
@@ -179,7 +202,7 @@ export default function Sidebar({
           )}
         </button>
 
-        {/* Business Dropdown — only for super admin / multi-business */}
+        {/* Business Dropdown */}
         {bizMenuOpen && !collapsed && canSwitchBusiness && (
           <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
             {allowedBusinesses.map((biz) => {
@@ -194,9 +217,7 @@ export default function Sidebar({
                   }}
                   className={cn(
                     "flex items-center gap-3 w-full px-3 py-2.5 text-left transition-colors",
-                    isSelected
-                      ? "bg-gray-50"
-                      : "hover:bg-gray-50"
+                    isSelected ? "bg-gray-50" : "hover:bg-gray-50"
                   )}
                 >
                   <div
@@ -237,7 +258,7 @@ export default function Sidebar({
                 return (
                   <li key={item.id}>
                     <button
-                      onClick={() => onNavigate(item.id)}
+                      onClick={() => handleNavigate(item.id)}
                       className={cn(
                         "relative flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
                         isActive
@@ -277,7 +298,6 @@ export default function Sidebar({
 
       {/* User Info & Logout */}
       <div className="border-t border-gray-100 p-2 space-y-1">
-        {/* User info */}
         {!collapsed && (
           <div className="flex items-center gap-2 px-3 py-2">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-100">
@@ -294,7 +314,6 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Logout button */}
         <button
           onClick={onLogout}
           className={cn(
@@ -307,7 +326,6 @@ export default function Sidebar({
           {!collapsed && <span>Logout</span>}
         </button>
 
-        {/* Collapse Toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
@@ -323,5 +341,120 @@ export default function Sidebar({
         </button>
       </div>
     </nav>
+  );
+
+  // ── Mobile drawer (always w-[240px], no collapse) ──
+  const mobileDrawer = (
+    <>
+      {/* Backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={onMobileClose}
+          aria-hidden
+        />
+      )}
+      {/* Drawer */}
+      <nav
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex flex-col w-[240px] bg-white border-r border-gray-200",
+          "transition-transform duration-300 md:hidden",
+          mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+        )}
+      >
+        {/* Mobile header with close button */}
+        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white"
+              style={{
+                background: `linear-gradient(135deg, ${currentBiz.primaryColor}, ${currentBiz.primaryColor}dd)`,
+              }}
+            >
+              <BizIcon className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-900 truncate max-w-[140px]">{currentBiz.name}</p>
+              <p className="text-[10px] text-gray-400">AI Chatbot</p>
+            </div>
+          </div>
+          <button
+            onClick={onMobileClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex-1 overflow-y-auto py-3 space-y-5">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <p className="px-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                {section.title}
+              </p>
+              <ul className="space-y-0.5 px-2">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activePage === item.id;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => handleNavigate(item.id)}
+                        className={cn(
+                          "relative flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                          isActive
+                            ? "bg-indigo-50 text-indigo-700"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                        )}
+                      >
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-indigo-600" />
+                        )}
+                        <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-indigo-600" : "text-gray-400")} />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {"badge" in item && item.badge && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 font-semibold">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 p-2 space-y-1">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+              <User className="h-3.5 w-3.5 text-gray-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-gray-700 truncate">{authUser.username}</p>
+              <p className="text-[10px] text-gray-400">{authUser.isSuperAdmin ? "Super Admin" : currentBiz.shortName}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => { onLogout(); onMobileClose?.(); }}
+            className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </nav>
+    </>
+  );
+
+  return (
+    <>
+      {navContent}
+      {mobileDrawer}
+    </>
   );
 }

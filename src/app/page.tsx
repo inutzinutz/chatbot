@@ -23,6 +23,7 @@ import {
   Code,
   ExternalLink,
   Zap,
+  Menu,
 } from "lucide-react";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { ToastContainer, PageWrapper } from "@/components/ui";
@@ -143,6 +144,7 @@ export default function Home() {
   const [businessId, setBusinessId] = useState("");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // ── Check session on mount ──
   useEffect(() => {
@@ -254,13 +256,34 @@ export default function Home() {
     <div className="flex h-dvh w-dvw overflow-hidden bg-gray-100">
       <Sidebar
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={(page) => { setActivePage(page); setMobileSidebarOpen(false); }}
         businessId={businessId}
         onBusinessChange={handleBusinessChange}
         authUser={authUser}
         onLogout={handleLogout}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
       />
-      {renderContent()}
+      {/* Content area — flex-1 so it fills remaining width on desktop */}
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+        {/* Mobile top bar with hamburger */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 bg-white md:hidden shrink-0">
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="text-sm font-semibold text-gray-800 capitalize">
+            {activePage.replace("-", " ")}
+          </span>
+        </div>
+        {/* Page content */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {renderContent()}
+        </div>
+      </div>
       <ToastContainer />
     </div>
   );
