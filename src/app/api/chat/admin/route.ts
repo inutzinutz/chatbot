@@ -200,6 +200,18 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Auto-disable bot: admin is now handling this conversation manually
+      const wasEnabled = await chatStore.isBotEnabled(businessId, userId);
+      if (wasEnabled) {
+        await chatStore.toggleBot(businessId, userId, false);
+        await chatStore.addMessage(businessId, userId, {
+          role: "admin",
+          content: `[ระบบ] บอทหยุดตอบอัตโนมัติ — ${sentBy} กำลังดูแลอยู่`,
+          timestamp: Date.now(),
+          sentBy,
+        });
+      }
+
       return NextResponse.json({ success: true, messageId: stored.id });
     }
 
@@ -343,6 +355,18 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.error("[Admin] Follow-up push error:", err);
         }
+      }
+
+      // Auto-disable bot: admin is now handling this conversation manually
+      const wasEnabledFU = await chatStore.isBotEnabled(businessId, userId);
+      if (wasEnabledFU) {
+        await chatStore.toggleBot(businessId, userId, false);
+        await chatStore.addMessage(businessId, userId, {
+          role: "admin",
+          content: `[ระบบ] บอทหยุดตอบอัตโนมัติ — ${sentBy} กำลังดูแลอยู่`,
+          timestamp: Date.now(),
+          sentBy,
+        });
       }
 
       // Clear follow-up flag

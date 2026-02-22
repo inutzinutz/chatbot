@@ -118,6 +118,29 @@ export async function POST(req: NextRequest) {
     //         → Priority 3: OpenAI GPT-4o-mini (streaming)
     // ══════════════════════════════════════════════════════
 
+    // ── Bot-enabled guard: skip AI if admin is handling this conversation ──
+    const conversationId = req.headers.get("x-conversation-id");
+    if (conversationId) {
+      try {
+        const statusUrl = new URL("/api/bot-status", req.url);
+        statusUrl.searchParams.set("businessId", businessId);
+        statusUrl.searchParams.set("userId", conversationId);
+        const statusResp = await fetch(statusUrl.toString());
+        if (statusResp.ok) {
+          const { botEnabled } = await statusResp.json() as { botEnabled: boolean };
+          if (!botEnabled) {
+            return NextResponse.json({
+              content: "",
+              botDisabled: true,
+              trace: { ...pipelineTrace, mode: "admin_handling" },
+            });
+          }
+        }
+      } catch {
+        // non-fatal: if check fails, let the bot reply anyway
+      }
+    }
+
     const openaiKey = process.env.OPENAI_API_KEY;
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
