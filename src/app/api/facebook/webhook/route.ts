@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
       const conv = await chatStore.getOrCreateConversation(businessId, senderId, {
         displayName: profile.name,
         pictureUrl: profile.picture,
-        source: "web", // use "web" as closest type (Facebook not in union)
+        source: "facebook",
       });
 
       // ── Handle image attachment (vision) ──

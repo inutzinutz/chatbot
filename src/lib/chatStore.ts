@@ -41,7 +41,7 @@ export interface ChatConversation {
   lastMessageRole: "customer" | "bot" | "admin";
   unreadCount: number;
   botEnabled: boolean;
-  source: "line" | "web";
+  source: "line" | "web" | "facebook";
   createdAt: number;
   pinned?: boolean;
   pinnedAt?: number;
@@ -212,7 +212,7 @@ export interface PendingWork {
   lastMessage: string;
   waitingHours: number;     // How long customer has been waiting
   assignedAdmin?: string;   // Admin who last touched this
-  source: "line" | "web";
+  source: "line" | "web" | "facebook";
   pinned: boolean;
   botEnabled: boolean;
 }
@@ -291,7 +291,7 @@ class ChatStore {
       displayName?: string;
       pictureUrl?: string;
       statusMessage?: string;
-      source?: "line" | "web";
+      source?: "line" | "web" | "facebook";
     }
   ): Promise<ChatConversation> {
     const ck = convKey(businessId, userId);
