@@ -11,6 +11,7 @@ import {
   buildVisionUserPrompt,
   buildPdfUserPrompt,
 } from "@/lib/visionPrompt";
+import { logTokenUsage } from "@/lib/tokenTracker";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -179,7 +180,8 @@ function stripMarkdown(text: string): string {
 
 async function callGptFallback(
   userMessage: string,
-  systemPrompt: string
+  systemPrompt: string,
+  businessId: string
 ): Promise<string | null> {
   const messages: { role: string; content: string }[] = [
     { role: "user", content: userMessage },
@@ -206,9 +208,12 @@ async function callGptFallback(
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { content?: { text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
         const text = data.content?.[0]?.text;
-        if (text) return text;
+        if (text) {
+          logTokenUsage({ businessId, model: "claude-sonnet-4-20250514", callSite: "line_claude", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
+          return text;
+        }
       }
     } catch (err) {
       console.error("[LINE webhook] Claude API error:", err);
@@ -241,9 +246,12 @@ async function callGptFallback(
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { choices?: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
         const text = data.choices?.[0]?.message?.content;
-        if (text) return text;
+        if (text) {
+          logTokenUsage({ businessId, model: "gpt-4o-mini", callSite: "line_openai", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
+          return text;
+        }
       }
     } catch (err) {
       console.error("[LINE webhook] OpenAI API error:", err);
@@ -368,7 +376,8 @@ async function analyzeViaVision(
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const data = await resp.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
+          logTokenUsage({ businessId, model: "gpt-4o", callSite: "line_vision_image", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
           return data.choices?.[0]?.message?.content || "ไม่สามารถวิเคราะห์รูปได้";
         }
       } catch { /* fallthrough */ }
@@ -393,7 +402,8 @@ async function analyzeViaVision(
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const data = await resp.json() as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+          logTokenUsage({ businessId, model: "claude-opus-4-5", callSite: "line_vision_image", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
           return data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถวิเคราะห์รูปได้";
         }
       } catch { /* fallthrough */ }
@@ -431,7 +441,8 @@ async function analyzeViaVision(
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const data = await resp.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
+          logTokenUsage({ businessId, model: "gpt-4o-mini", callSite: "line_vision_pdf", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
           return data.choices?.[0]?.message?.content || "ไม่สามารถสรุป PDF ได้";
         }
       }
@@ -448,7 +459,8 @@ async function analyzeViaVision(
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const data = await resp.json() as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+          logTokenUsage({ businessId, model: "claude-haiku-4-5", callSite: "line_vision_pdf", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
           return data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถสรุป PDF ได้";
         }
       }
@@ -965,7 +977,7 @@ export async function POST(req: NextRequest) {
         replyText = pipelineContent;
       } else {
         const systemPrompt = buildSystemPrompt(biz);
-        const gptResponse = await callGptFallback(userText, systemPrompt);
+        const gptResponse = await callGptFallback(userText, systemPrompt, businessId);
         replyText = gptResponse || pipelineContent;
         diag.gptUsed = !!gptResponse;
       }

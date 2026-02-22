@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const biz = getBusinessConfig(businessId);
 
     // Run the agent loop
-    const agentResult = await runAgentLoop(userMessage, messages, biz);
+    const agentResult = await runAgentLoop(userMessage, messages, biz, conversationId);
 
     // If agent flagged for admin — persist to Redis for the monitor
     if (agentResult.flaggedForAdmin && conversationId) {

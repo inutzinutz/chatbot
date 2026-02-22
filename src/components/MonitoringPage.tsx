@@ -5,11 +5,61 @@ import {
   Users, MessageSquare, Clock, AlertTriangle, CheckCircle,
   ChevronRight, RefreshCw, Calendar, TrendingUp, Bot,
   Pin, Wifi, Activity, BarChart2, FileText, Loader2,
-  ArrowRight, User, Timer,
+  ArrowRight, User, Timer, Cpu,
 } from "lucide-react";
 import type { ChatSummary, PendingWork, DailyDigest } from "@/lib/chatStore";
 
 // ── Types ──
+
+interface TokenTotals {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  calls: number;
+  costUSD: number;
+}
+
+interface TokenModelRow {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  calls: number;
+  costUSD: number;
+}
+
+interface TokenDailyRow {
+  date: string;
+  totalTokens: number;
+  costUSD: number;
+  calls: number;
+}
+
+interface TokenSiteRow {
+  calls: number;
+  totalTokens: number;
+  costUSD: number;
+}
+
+interface TokenLogEntry {
+  id: string;
+  model: string;
+  callSite: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUSD: number;
+  timestamp: number;
+}
+
+interface TokensData {
+  totals: TokenTotals;
+  byModel: TokenModelRow[];
+  dailyChart: TokenDailyRow[];
+  bySite: Record<string, TokenSiteRow>;
+  recentLog: TokenLogEntry[];
+  days: number;
+}
 
 interface AdminUserStats {
   sent: number;
@@ -109,7 +159,7 @@ interface MonitoringPageProps {
   businessId: string;
 }
 
-type Tab = "users" | "pending" | "summaries" | "daily";
+type Tab = "users" | "pending" | "summaries" | "daily" | "tokens";
 
 export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const [tab, setTab] = useState<Tab>("users");
@@ -134,6 +184,10 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   // Daily digest state
   const [digest, setDigest] = useState<DailyDigest | null>(null);
   const [digestDate, setDigestDate] = useState(todayThai());
+
+  // Tokens tab state
+  const [tokensData, setTokensData] = useState<TokensData | null>(null);
+  const [tokenDays, setTokenDays] = useState<30 | 7 | 1>(30);
 
   const sinceMap = {
     today: new Date(todayThai() + "T00:00:00+07:00").getTime(),
@@ -238,13 +292,28 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
     }
   }, [businessId, digestDate]);
 
+  // ── Fetch token usage ──
+  const fetchTokens = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(
+        `/api/monitoring?businessId=${businessId}&view=tokens&days=${tokenDays}`
+      );
+      const data = await r.json() as TokensData;
+      setTokensData(data);
+    } finally {
+      setLoading(false);
+    }
+  }, [businessId, tokenDays]);
+
   // Effects
   useEffect(() => {
     if (tab === "users") fetchUsers();
     if (tab === "pending") fetchPending();
     if (tab === "summaries") fetchSummaries();
     if (tab === "daily") fetchDigest();
-  }, [tab, fetchUsers, fetchPending, fetchSummaries, fetchDigest]);
+    if (tab === "tokens") fetchTokens();
+  }, [tab, fetchUsers, fetchPending, fetchSummaries, fetchDigest, fetchTokens]);
 
   useEffect(() => {
     if (selectedUser) fetchUserDetail(selectedUser);
@@ -262,6 +331,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
     },
     { id: "summaries", label: "สรุปแชท", icon: <FileText size={15} /> },
     { id: "daily", label: "Daily Digest", icon: <Calendar size={15} /> },
+    { id: "tokens", label: "Tokens", icon: <Cpu size={15} /> },
   ];
 
   return (
@@ -281,6 +351,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
             if (tab === "pending") fetchPending();
             if (tab === "summaries") fetchSummaries();
             if (tab === "daily") fetchDigest();
+            if (tab === "tokens") fetchTokens();
           }}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border"
         >
@@ -916,6 +987,247 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* ── TOKENS TAB ── */}
+        {tab === "tokens" && (
+          <div className="space-y-4">
+            {/* Period selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">ช่วงเวลา:</span>
+              {([1, 7, 30] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setTokenDays(d)}
+                  className={`px-3 py-1 text-sm rounded-full border ${
+                    tokenDays === d
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "text-gray-600 border-gray-300 hover:bg-gray-100"
+                  }`}
+                >
+                  {d === 1 ? "วันนี้" : d === 7 ? "7 วัน" : "30 วัน"}
+                </button>
+              ))}
+            </div>
+
+            {loading && !tokensData && (
+              <div className="flex items-center justify-center py-16 text-gray-400">
+                <Loader2 size={20} className="animate-spin mr-2" /> กำลังโหลด...
+              </div>
+            )}
+
+            {tokensData && (() => {
+              const THB_RATE = 34;
+              const { totals, byModel, dailyChart, bySite, recentLog } = tokensData;
+
+              // Colour map for models
+              const MODEL_COLORS: Record<string, string> = {
+                "gpt-4o": "bg-green-500",
+                "gpt-4o-mini": "bg-emerald-400",
+                "claude-sonnet-4-20250514": "bg-purple-500",
+                "claude-opus-4-5": "bg-violet-600",
+                "claude-haiku-4-5": "bg-indigo-400",
+              };
+
+              const SITE_LABELS: Record<string, string> = {
+                agent: "AI Agent",
+                vision_image: "Vision (รูป)",
+                vision_pdf: "Vision (PDF)",
+                chat_claude: "Chat Claude",
+                chat_openai: "Chat OpenAI",
+                line_claude: "LINE Claude",
+                line_openai: "LINE OpenAI",
+                line_vision_image: "LINE Vision (รูป)",
+                line_vision_pdf: "LINE Vision (PDF)",
+                monitoring_summary: "AI Summary",
+              };
+
+              const maxDailyTokens = Math.max(...dailyChart.map((r) => r.totalTokens), 1);
+
+              return (
+                <div className="space-y-4">
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-xl border p-4">
+                      <div className="flex items-center gap-2 mb-1 text-blue-600">
+                        <Cpu size={16} /> <span className="text-xs font-medium text-gray-500">Total Tokens</span>
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {totals.totalTokens >= 1_000_000
+                          ? `${(totals.totalTokens / 1_000_000).toFixed(2)}M`
+                          : totals.totalTokens >= 1_000
+                          ? `${(totals.totalTokens / 1_000).toFixed(1)}K`
+                          : totals.totalTokens}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">{totals.calls.toLocaleString()} calls</div>
+                    </div>
+                    <div className="bg-white rounded-xl border p-4">
+                      <div className="flex items-center gap-2 mb-1 text-green-600">
+                        <TrendingUp size={16} /> <span className="text-xs font-medium text-gray-500">Cost (USD)</span>
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        ${totals.costUSD.toFixed(4)}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">≈ ฿{(totals.costUSD * THB_RATE).toFixed(2)}</div>
+                    </div>
+                    <div className="bg-white rounded-xl border p-4">
+                      <div className="flex items-center gap-2 mb-1 text-orange-500">
+                        <ArrowRight size={16} /> <span className="text-xs font-medium text-gray-500">Input Tokens</span>
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {totals.promptTokens >= 1_000
+                          ? `${(totals.promptTokens / 1_000).toFixed(1)}K`
+                          : totals.promptTokens}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">prompt tokens</div>
+                    </div>
+                    <div className="bg-white rounded-xl border p-4">
+                      <div className="flex items-center gap-2 mb-1 text-purple-500">
+                        <Bot size={16} /> <span className="text-xs font-medium text-gray-500">Output Tokens</span>
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {totals.completionTokens >= 1_000
+                          ? `${(totals.completionTokens / 1_000).toFixed(1)}K`
+                          : totals.completionTokens}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">completion tokens</div>
+                    </div>
+                  </div>
+
+                  {/* Daily usage bar chart */}
+                  {dailyChart.length > 0 && (
+                    <div className="bg-white rounded-xl border p-4">
+                      <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <BarChart2 size={15} /> Token Usage รายวัน
+                      </h3>
+                      <div className="flex items-end gap-1 h-28 overflow-x-auto">
+                        {dailyChart.map((row) => (
+                          <div key={row.date} className="flex flex-col items-center gap-1 min-w-[32px] flex-1">
+                            <div className="text-xs text-gray-500 whitespace-nowrap">
+                              {row.totalTokens >= 1_000 ? `${(row.totalTokens / 1_000).toFixed(0)}K` : row.totalTokens}
+                            </div>
+                            <div
+                              className="w-full bg-blue-500 rounded-t"
+                              style={{ height: `${Math.max(4, (row.totalTokens / maxDailyTokens) * 80)}px` }}
+                              title={`${row.date}: ${row.totalTokens.toLocaleString()} tokens · $${row.costUSD.toFixed(4)}`}
+                            />
+                            <div className="text-xs text-gray-400 whitespace-nowrap" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", height: "36px", fontSize: "10px" }}>
+                              {row.date.slice(5)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* By model */}
+                  {byModel.length > 0 && (
+                    <div className="bg-white rounded-xl border p-4">
+                      <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <Cpu size={15} /> ค่าใช้จ่ายแยกตาม Model
+                      </h3>
+                      <div className="space-y-3">
+                        {byModel.map((row) => {
+                          const barColor = MODEL_COLORS[row.model] ?? "bg-gray-400";
+                          const pct = totals.costUSD > 0 ? (row.costUSD / totals.costUSD) * 100 : 0;
+                          return (
+                            <div key={row.model}>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm font-medium text-gray-700">{row.model}</span>
+                                <div className="text-right">
+                                  <span className="text-sm font-bold text-gray-900">${row.costUSD.toFixed(4)}</span>
+                                  <span className="text-xs text-gray-400 ml-1">≈ ฿{(row.costUSD * THB_RATE).toFixed(2)}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                                  <div className={`${barColor} h-full rounded-full`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs text-gray-500 w-16 text-right">
+                                  {row.totalTokens >= 1_000 ? `${(row.totalTokens / 1_000).toFixed(1)}K` : row.totalTokens} tok · {row.calls} calls
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* By call site */}
+                  {Object.keys(bySite).length > 0 && (
+                    <div className="bg-white rounded-xl border p-4">
+                      <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <Activity size={15} /> ค่าใช้จ่ายแยกตาม Call Site
+                      </h3>
+                      <div className="space-y-2">
+                        {Object.entries(bySite)
+                          .sort(([, a], [, b]) => b.costUSD - a.costUSD)
+                          .map(([site, stats]) => (
+                            <div key={site} className="flex items-center gap-3 py-1.5 border-b last:border-0">
+                              <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono">
+                                {SITE_LABELS[site] ?? site}
+                              </span>
+                              <span className="text-sm text-gray-600 flex-1">{stats.calls} calls</span>
+                              <span className="text-xs text-gray-500">
+                                {stats.totalTokens >= 1_000 ? `${(stats.totalTokens / 1_000).toFixed(1)}K` : stats.totalTokens} tokens
+                              </span>
+                              <span className="text-sm font-semibold text-gray-800 w-20 text-right">
+                                ${stats.costUSD.toFixed(4)}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent log */}
+                  {recentLog.length > 0 && (
+                    <div className="bg-white rounded-xl border p-4">
+                      <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <Clock size={15} /> Recent Calls (50 รายการล่าสุด)
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-500 border-b">
+                              <th className="text-left py-1 pr-3 font-medium">เวลา</th>
+                              <th className="text-left py-1 pr-3 font-medium">Model</th>
+                              <th className="text-left py-1 pr-3 font-medium">Site</th>
+                              <th className="text-right py-1 pr-3 font-medium">In</th>
+                              <th className="text-right py-1 pr-3 font-medium">Out</th>
+                              <th className="text-right py-1 font-medium">Cost</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recentLog.map((entry) => (
+                              <tr key={entry.id} className="border-b last:border-0 hover:bg-gray-50">
+                                <td className="py-1.5 pr-3 text-gray-500 whitespace-nowrap">
+                                  {new Date(entry.timestamp + 7 * 3600000).toISOString().slice(11, 19)}
+                                </td>
+                                <td className="py-1.5 pr-3 font-mono text-gray-700 truncate max-w-[120px]">{entry.model}</td>
+                                <td className="py-1.5 pr-3 text-gray-600">{SITE_LABELS[entry.callSite] ?? entry.callSite}</td>
+                                <td className="py-1.5 pr-3 text-right text-gray-600">{entry.promptTokens.toLocaleString()}</td>
+                                <td className="py-1.5 pr-3 text-right text-gray-600">{entry.completionTokens.toLocaleString()}</td>
+                                <td className="py-1.5 text-right font-semibold text-gray-800">${entry.costUSD.toFixed(5)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {totals.calls === 0 && (
+                    <div className="text-center py-16 text-gray-400">
+                      <Cpu size={40} className="mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">ยังไม่มีข้อมูล Token Usage</p>
+                      <p className="text-xs mt-1">จะเริ่มแสดงหลังจากมี AI call ครั้งแรก</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

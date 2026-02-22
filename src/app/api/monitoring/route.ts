@@ -10,6 +10,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
+import {
+  getTokenDailyStats,
+  getTokenTotals,
+  getTokenStatsByModel,
+  getTokenLog,
+} from "@/lib/tokenTracker";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -32,6 +38,47 @@ export async function GET(req: NextRequest) {
   }
 
   const view = req.nextUrl.searchParams.get("view") || "users";
+
+  // ── VIEW: token usage ──
+  if (view === "tokens") {
+    const days = parseInt(req.nextUrl.searchParams.get("days") || "30");
+    const [daily, totals, byModel, log] = await Promise.all([
+      getTokenDailyStats(businessId, days),
+      getTokenTotals(businessId),
+      getTokenStatsByModel(businessId, days),
+      getTokenLog(businessId, 200),
+    ]);
+
+    // Aggregate daily totals across all models (for the chart)
+    const dailyTotalsMap: Record<string, { date: string; totalTokens: number; costUSD: number; calls: number }> = {};
+    for (const row of daily) {
+      if (!dailyTotalsMap[row.date]) {
+        dailyTotalsMap[row.date] = { date: row.date, totalTokens: 0, costUSD: 0, calls: 0 };
+      }
+      dailyTotalsMap[row.date].totalTokens += row.totalTokens;
+      dailyTotalsMap[row.date].costUSD += row.costUSD;
+      dailyTotalsMap[row.date].calls += row.calls;
+    }
+    const dailyChart = Object.values(dailyTotalsMap).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Call site breakdown from recent log
+    const bySite: Record<string, { calls: number; totalTokens: number; costUSD: number }> = {};
+    for (const entry of log) {
+      if (!bySite[entry.callSite]) bySite[entry.callSite] = { calls: 0, totalTokens: 0, costUSD: 0 };
+      bySite[entry.callSite].calls++;
+      bySite[entry.callSite].totalTokens += entry.totalTokens;
+      bySite[entry.callSite].costUSD += entry.costUSD;
+    }
+
+    return NextResponse.json({
+      totals,
+      byModel,
+      dailyChart,
+      bySite,
+      recentLog: log.slice(0, 50),
+      days,
+    });
+  }
 
   // ── VIEW: pending work ──
   if (view === "pending") {

@@ -19,6 +19,7 @@ import {
   buildVisionUserPrompt,
   buildPdfUserPrompt,
 } from "@/lib/visionPrompt";
+import { logTokenUsage } from "@/lib/tokenTracker";
 
 export const runtime = "nodejs";
 
@@ -84,7 +85,8 @@ export async function POST(req: NextRequest) {
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const data = await resp.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
+          logTokenUsage({ businessId, model: "gpt-4o", callSite: "vision_image", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
           return NextResponse.json({ content: data.choices?.[0]?.message?.content || "ไม่สามารถวิเคราะห์รูปได้", fileType: "image", fileName });
         }
       }
@@ -107,7 +109,8 @@ export async function POST(req: NextRequest) {
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const data = await resp.json() as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+          logTokenUsage({ businessId, model: "claude-opus-4-5", callSite: "vision_image", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
           return NextResponse.json({ content: data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถวิเคราะห์รูปได้", fileType: "image", fileName });
         }
       }
@@ -150,7 +153,8 @@ export async function POST(req: NextRequest) {
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          const data = await resp.json() as { choices: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
+          logTokenUsage({ businessId, model: "gpt-4o-mini", callSite: "vision_pdf", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
           return NextResponse.json({ content: data.choices?.[0]?.message?.content || "ไม่สามารถสรุปเอกสารได้", fileType: "pdf", fileName });
         }
       }
@@ -167,7 +171,8 @@ export async function POST(req: NextRequest) {
           }),
         });
         if (resp.ok) {
-          const data = await resp.json() as { content: { type: string; text: string }[] };
+          const data = await resp.json() as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+          logTokenUsage({ businessId, model: "claude-haiku-4-5", callSite: "vision_pdf", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
           return NextResponse.json({ content: data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถสรุปเอกสารได้", fileType: "pdf", fileName });
         }
       }

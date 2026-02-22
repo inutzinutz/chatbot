@@ -18,6 +18,7 @@ import {
   executeAgentTool,
   type ToolResult,
 } from "@/lib/agent/tools";
+import { logTokenUsage } from "@/lib/tokenTracker";
 
 // ── Types ──
 
@@ -84,7 +85,8 @@ ${productSummary}
 export async function runAgentLoop(
   userMessage: string,
   conversationHistory: ChatMessage[],
-  biz: BusinessConfig
+  biz: BusinessConfig,
+  conversationId?: string
 ): Promise<AgentResult> {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -112,6 +114,8 @@ export async function runAgentLoop(
   let flagReason: string | undefined;
   let flagUrgency: "low" | "medium" | "high" | undefined;
   let iterations = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
   // ── Agent loop ──
   while (iterations < MAX_ITERATIONS) {
@@ -126,6 +130,12 @@ export async function runAgentLoop(
       max_tokens: 800,
     });
 
+    // Accumulate token usage across all iterations
+    if (response.usage) {
+      totalPromptTokens += response.usage.prompt_tokens ?? 0;
+      totalCompletionTokens += response.usage.completion_tokens ?? 0;
+    }
+
     const choice = response.choices[0];
     const assistantMessage = choice.message;
 
@@ -139,6 +149,15 @@ export async function runAgentLoop(
       assistantMessage.tool_calls.length === 0
     ) {
       const content = assistantMessage.content || biz.defaultFallbackMessage;
+      // Log accumulated token usage (fire-and-forget)
+      logTokenUsage({
+        businessId: biz.id,
+        model: "gpt-4o",
+        callSite: "agent",
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        conversationId,
+      }).catch(() => {});
       return {
         content,
         flaggedForAdmin,
@@ -185,6 +204,14 @@ export async function runAgentLoop(
   }
 
   // Safety: if we hit max iterations, return a safe fallback
+  logTokenUsage({
+    businessId: biz.id,
+    model: "gpt-4o",
+    callSite: "agent",
+    promptTokens: totalPromptTokens,
+    completionTokens: totalCompletionTokens,
+    conversationId,
+  }).catch(() => {});
   return {
     content: biz.defaultFallbackMessage,
     flaggedForAdmin,

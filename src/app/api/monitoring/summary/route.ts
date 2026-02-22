@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import type { ChatSummary } from "@/lib/chatStore";
+import { logTokenUsage } from "@/lib/tokenTracker";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -123,7 +124,17 @@ Format ที่ต้องการ:
 
     const gptData = await response.json() as {
       choices: { message: { content: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number };
     };
+    // Log token usage (fire-and-forget)
+    logTokenUsage({
+      businessId,
+      model: "gpt-4o-mini",
+      callSite: "monitoring_summary",
+      promptTokens: gptData.usage?.prompt_tokens ?? 0,
+      completionTokens: gptData.usage?.completion_tokens ?? 0,
+      conversationId: userId,
+    }).catch(() => {});
     const raw = gptData.choices[0]?.message?.content || "{}";
     let parsed: {
       topic?: string;

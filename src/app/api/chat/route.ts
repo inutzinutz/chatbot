@@ -269,6 +269,9 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          let claudeInputTokens = 0;
+          let claudeOutputTokens = 0;
+
           try {
             let buffer = "";
             while (true) {
@@ -297,10 +300,34 @@ export async function POST(req: NextRequest) {
                       );
                     }
 
+                    // Capture usage from message_delta event
+                    if (parsed.type === "message_delta" && parsed.usage) {
+                      claudeOutputTokens = parsed.usage.output_tokens ?? 0;
+                    }
+
+                    // Capture input tokens from message_start event
+                    if (parsed.type === "message_start" && parsed.message?.usage) {
+                      claudeInputTokens = parsed.message.usage.input_tokens ?? 0;
+                    }
+
                     if (parsed.type === "message_stop") {
                       controller.enqueue(
                         encoder.encode("data: [DONE]\n\n")
                       );
+                      // Fire-and-forget token log via internal Node.js endpoint
+                      if (claudeInputTokens + claudeOutputTokens > 0) {
+                        fetch(new URL("/api/token-log", req.url).toString(), {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            businessId,
+                            model: "claude-sonnet-4-20250514",
+                            callSite: "chat_claude",
+                            promptTokens: claudeInputTokens,
+                            completionTokens: claudeOutputTokens,
+                          }),
+                        }).catch(() => {});
+                      }
                     }
                   } catch {
                     // skip malformed
@@ -345,6 +372,7 @@ export async function POST(req: NextRequest) {
             temperature: 0.7,
             max_tokens: 1000,
             stream: true,
+            stream_options: { include_usage: true },
           }),
         }
       );
@@ -400,6 +428,9 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          let oaiPromptTokens = 0;
+          let oaiCompletionTokens = 0;
+
           try {
             let buffer = "";
             while (true) {
@@ -419,6 +450,20 @@ export async function POST(req: NextRequest) {
                     controller.enqueue(
                       encoder.encode("data: [DONE]\n\n")
                     );
+                    // Fire-and-forget token log
+                    if (oaiPromptTokens + oaiCompletionTokens > 0) {
+                      fetch(new URL("/api/token-log", req.url).toString(), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          businessId,
+                          model: "gpt-4o-mini",
+                          callSite: "chat_openai",
+                          promptTokens: oaiPromptTokens,
+                          completionTokens: oaiCompletionTokens,
+                        }),
+                      }).catch(() => {});
+                    }
                     break;
                   }
                   try {
@@ -431,6 +476,11 @@ export async function POST(req: NextRequest) {
                           `data: ${JSON.stringify({ content })}\n\n`
                         )
                       );
+                    }
+                    // OpenAI sends usage in the last chunk when stream_options.include_usage=true
+                    if (parsed.usage) {
+                      oaiPromptTokens = parsed.usage.prompt_tokens ?? 0;
+                      oaiCompletionTokens = parsed.usage.completion_tokens ?? 0;
                     }
                   } catch {
                     // skip malformed chunks
