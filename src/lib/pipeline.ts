@@ -1,4 +1,4 @@
-﻿﻿/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
 /*  Shared Pipeline — used by /api/chat and /api/line/webhook          */
 /* ------------------------------------------------------------------ */
 
@@ -120,83 +120,145 @@ const TOPIC_PATTERNS: { keys: string[]; topic: string }[] = [
   { keys: ["สั่ง", "ซื้อ", "เอา", "order", "buy"], topic: "order" },
 ];
 
-function extractConversationContext(
-  messages: ChatMessage[],
-  currentMessage: string,
-  biz: BusinessConfig
-): ConversationContext {
-  const recentProducts: Product[] = [];
-  const recentUserMessages: string[] = [];
-  let activeProduct: Product | null = null;
-  let recentTopic: string | null = null;
+/**
+ * Scan one message's text and add any products found into the set.
+ * Returns the last product found in this message (for recency tracking).
+ */
+function scanProductsInText(
+  text: string,
+  products: Product[],
+  seen: Map<string, Product>
+): Product | null {
+  let lastFound: Product | null = null;
+  const lower = text.toLowerCase();
 
-  const recentMsgs = messages.slice(-8);
-  for (const msg of recentMsgs) {
-    if (msg.role === "user") {
-      recentUserMessages.push(msg.content);
+  for (const product of products) {
+    const nameMatch = product.name.toLowerCase();
+    let matched = false;
+
+    if (lower.includes(nameMatch)) {
+      matched = true;
     }
 
-    const text = msg.content.toLowerCase();
-
-    for (const product of biz.products) {
-      const nameMatch = product.name.toLowerCase();
-      if (text.includes(nameMatch)) {
-        if (!recentProducts.find((p) => p.id === product.id)) {
-          recentProducts.push(product);
-        }
-        continue;
-      }
-
+    if (!matched) {
       for (const tag of product.tags) {
-        if (tag.length > 3 && text.includes(tag.toLowerCase())) {
-          if (!recentProducts.find((p) => p.id === product.id)) {
-            recentProducts.push(product);
-          }
+        if (tag.length > 3 && !GENERIC_PRODUCT_TAGS.has(tag.toLowerCase()) && lower.includes(tag.toLowerCase())) {
+          matched = true;
           break;
         }
       }
     }
 
-    if (msg.role === "assistant") {
-      const productNameMatch = msg.content.match(/\*\*(.+?)\*\*/g);
-      if (productNameMatch) {
-        for (const match of productNameMatch) {
-          const name = match.replace(/\*\*/g, "");
-          const found = biz.products.find(
-            (p) => p.name.toLowerCase() === name.toLowerCase()
-          );
-          if (found && !recentProducts.find((rp) => rp.id === found.id)) {
-            recentProducts.push(found);
-          }
+    if (matched) {
+      seen.set(String(product.id), product);
+      lastFound = product;
+    }
+  }
+
+  // Also catch bold **ProductName** patterns (assistant replies)
+  const boldMatches = text.match(/\*\*(.+?)\*\*/g);
+  if (boldMatches) {
+    for (const m of boldMatches) {
+      const name = m.replace(/\*\*/g, "").trim();
+      const found = products.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (found) {
+        seen.set(String(found.id), found);
+        lastFound = found;
+      }
+    }
+  }
+
+  return lastFound;
+}
+
+function extractConversationContext(
+  messages: ChatMessage[],
+  currentMessage: string,
+  biz: BusinessConfig
+): ConversationContext {
+  const recentUserMessages: string[] = [];
+
+  // ── Pass 1: scan last 10 messages chronologically, track product mentions ──
+  // Use a Map keyed by product.id to deduplicate; preserve insertion order = recency
+  const seenProducts = new Map<string, Product>();
+  let lastAssistantProduct: Product | null = null;  // most recent product in the last assistant reply
+  let lastTopicInHistory: string | null = null;      // most recent topic seen in prior turns
+
+  const recentMsgs = messages.slice(-10);
+
+  for (const msg of recentMsgs) {
+    if (msg.role === "user") {
+      recentUserMessages.push(msg.content);
+    }
+
+    const lastInMsg = scanProductsInText(msg.content, biz.products, seenProducts);
+
+    // Track the most recent product that the ASSISTANT explicitly talked about
+    if (msg.role === "assistant" && lastInMsg) {
+      lastAssistantProduct = lastInMsg;
+    }
+
+    // Track topic from prior user messages (for topic persistence)
+    if (msg.role === "user") {
+      const ml = msg.content.toLowerCase();
+      for (const { keys, topic } of TOPIC_PATTERNS) {
+        if (keys.some((k) => ml.includes(k))) {
+          lastTopicInHistory = topic;
+          break;
         }
       }
     }
   }
 
-  if (recentProducts.length > 0) {
+  const recentProducts = Array.from(seenProducts.values());
+
+  // ── Pass 2: determine activeProduct ──
+  // Priority order:
+  //   1. Product mentioned in the CURRENT user message
+  //   2. Product last explicitly discussed by the assistant
+  //   3. Most recently seen product in the last 10 messages
+  const currentLower = currentMessage.toLowerCase();
+
+  let activeProduct: Product | null = null;
+
+  // Check if current message mentions a product directly
+  const currentSeenMap = new Map<string, Product>();
+  const currentLastProduct = scanProductsInText(currentMessage, biz.products, currentSeenMap);
+  if (currentLastProduct) {
+    activeProduct = currentLastProduct;
+  } else if (lastAssistantProduct) {
+    activeProduct = lastAssistantProduct;
+  } else if (recentProducts.length > 0) {
     activeProduct = recentProducts[recentProducts.length - 1];
   }
 
-  const currentLower = currentMessage.toLowerCase();
-  const isFollowUp =
-    messages.length > 1 &&
-    FOLLOW_UP_PATTERNS.some((p) => currentLower.includes(p)) &&
-    (currentMessage.length < 40 ||
-      FOLLOW_UP_PATTERNS.some((p) => currentLower.includes(p)));
-
+  // ── Pass 3: topic detection ──
+  // First check current message; fall back to last topic seen in history
+  let recentTopic: string | null = null;
   for (const { keys, topic } of TOPIC_PATTERNS) {
     if (keys.some((k) => currentLower.includes(k))) {
       recentTopic = topic;
       break;
     }
   }
+  // Topic persistence: if current message has no topic but looks like a follow-up, carry forward
+  if (!recentTopic && lastTopicInHistory) {
+    recentTopic = lastTopicInHistory;
+  }
+
+  // ── Pass 4: follow-up detection ──
+  // A message is a follow-up when:
+  //   - There is prior context (messages > 1), AND
+  //   - It contains a follow-up pattern OR is very short (≤ 25 chars) AND there's an activeProduct
+  const hasFollowUpKeyword = FOLLOW_UP_PATTERNS.some((p) => currentLower.includes(p));
+  const isShortWithContext = currentMessage.trim().length <= 25 && messages.length > 1 && activeProduct !== null;
+  const isFollowUp = messages.length > 1 && (hasFollowUpKeyword || isShortWithContext);
 
   const parts: string[] = [];
-  if (activeProduct) parts.push(`Active product: ${activeProduct.name}`);
-  if (recentProducts.length > 1)
-    parts.push(`${recentProducts.length} products in context`);
+  if (activeProduct) parts.push(`Active: ${activeProduct.name}`);
+  if (recentProducts.length > 1) parts.push(`${recentProducts.length} products in ctx`);
   if (recentTopic) parts.push(`Topic: ${recentTopic}`);
-  if (isFollowUp) parts.push("Follow-up detected");
+  if (isFollowUp) parts.push("follow-up");
   const summary = parts.length > 0 ? parts.join(" | ") : "No prior context";
 
   return {
@@ -759,6 +821,18 @@ export function generatePipelineResponseWithTrace(
       matchedProducts: [ctx.activeProduct.name],
     });
   } else if (ctx.isFollowUp && !ctx.activeProduct) {
+    // Follow-up but no product in context — ask which product the customer means
+    // Only do this when the message is genuinely short/ambiguous (not a new question)
+    if (userMessage.trim().length <= 30 && biz.getActiveProducts().length > 0) {
+      const cats = [...new Set(biz.getActiveProducts().map((p) => p.category))];
+      const catList = cats.map((c) => `• ${c}`).join("\n");
+      addStep(5, "Context Resolution", "Follow-up สั้น แต่ไม่มีสินค้าในบริบท — ถามกลับ", "matched", t);
+      finalLayer = 5;
+      finalLayerName = "Context: ambiguous follow-up";
+      return finishTrace(
+        `ขออภัยครับ ผมไม่แน่ใจว่าถามเกี่ยวกับสินค้าตัวไหนครับ 😊\n\nเราจำหน่ายสินค้าหมวดหมู่เหล่านี้ครับ:\n${catList}\n\nรบกวนระบุรุ่นหรือประเภทสินค้าที่สนใจด้วยนะครับ`
+      );
+    }
     addStep(5, "Context Resolution", "Follow-up แต่ไม่มีสินค้าในบริบท", "skipped", t);
   } else {
     addStep(5, "Context Resolution", "ไม่ใช่ follow-up message", "skipped", t);
