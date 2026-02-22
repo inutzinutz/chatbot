@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 import { getBusinessConfig } from "@/lib/businessUnits";
@@ -16,6 +16,9 @@ import {
   Percent,
   ToggleLeft,
   ToggleRight,
+  Send,
+  Users,
+  Radio,
 } from "lucide-react";
 
 interface Promotion {
@@ -265,6 +268,54 @@ export default function PromotionsPage({ businessId }: { businessId: string }) {
   const [editing, setEditing] = useState<Promotion | null | "new">(null);
   const [deleting, setDeleting] = useState<Promotion | null>(null);
 
+  // ── Broadcast state ──
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState("");
+  const [broadcastFilter, setBroadcastFilter] = useState<"all" | "pinned" | "botOff">("all");
+  const [broadcastTargetCount, setBroadcastTargetCount] = useState<number | null>(null);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{ sent: number; failed: number; total: number } | null>(null);
+
+  const previewCount = useCallback(async (filter: "all" | "pinned" | "botOff") => {
+    try {
+      const res = await fetch(
+        `/api/line/broadcast?businessId=${encodeURIComponent(businessId)}&filter=${filter}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setBroadcastTargetCount(data.count ?? null);
+      }
+    } catch {}
+  }, [businessId]);
+
+  const handleBroadcast = async () => {
+    if (!broadcastMsg.trim() || broadcasting) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch("/api/line/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId,
+          message: broadcastMsg.trim(),
+          filter: broadcastFilter,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setBroadcastResult(data);
+        setBroadcastMsg("");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setBroadcastResult({ sent: 0, failed: 0, total: 0, ...err });
+      }
+    } catch {
+      setBroadcastResult({ sent: 0, failed: -1, total: 0 });
+    }
+    setBroadcasting(false);
+  };
+
   const filtered = search
     ? items.filter((p) => { const q = search.toLowerCase(); return p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q); })
     : items;
@@ -299,6 +350,89 @@ export default function PromotionsPage({ businessId }: { businessId: string }) {
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search promotions..." className="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300" />
         </div>
       </header>
+
+      {/* Broadcast Panel */}
+      <div className="border-b border-gray-200 bg-gray-50/50 px-5 py-3">
+        <button
+          onClick={() => { setShowBroadcast((v) => !v); if (!showBroadcast) previewCount(broadcastFilter); }}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border transition-all",
+            showBroadcast
+              ? "bg-indigo-600 text-white border-indigo-600"
+              : "bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:text-indigo-700"
+          )}
+        >
+          <Radio className="h-4 w-4" />
+          ส่งโปรโมชั่นผ่าน LINE (Broadcast)
+        </button>
+
+        {showBroadcast && (
+          <div className="mt-3 bg-white rounded-xl border border-gray-200 p-4 space-y-3 shadow-sm">
+            {/* Filter */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500 font-medium">ส่งให้:</span>
+              {(["all", "pinned", "botOff"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => { setBroadcastFilter(f); previewCount(f); setBroadcastResult(null); }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border font-medium transition-all",
+                    broadcastFilter === f
+                      ? "bg-indigo-100 text-indigo-700 border-indigo-300"
+                      : "bg-gray-50 text-gray-600 border-gray-200 hover:border-indigo-200"
+                  )}
+                >
+                  <Users className="h-3 w-3" />
+                  {f === "all" ? "ทุกราย (LINE)" : f === "pinned" ? "Pinned เท่านั้น" : "Bot ปิดอยู่"}
+                </button>
+              ))}
+              {broadcastTargetCount !== null && (
+                <span className="text-xs text-gray-400">
+                  ← {broadcastTargetCount} ราย
+                </span>
+              )}
+            </div>
+
+            {/* Message */}
+            <textarea
+              value={broadcastMsg}
+              onChange={(e) => setBroadcastMsg(e.target.value)}
+              placeholder="พิมพ์ข้อความโปรโมชั่นที่ต้องการส่ง..."
+              rows={3}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 resize-none"
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleBroadcast}
+                disabled={!broadcastMsg.trim() || broadcasting}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+                  broadcastMsg.trim() && !broadcasting
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                )}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {broadcasting ? "กำลังส่ง..." : "ส่งตอนนี้"}
+              </button>
+              {broadcastResult && (
+                <span className={cn(
+                  "text-xs font-medium",
+                  broadcastResult.failed === 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {broadcastResult.failed === 0
+                    ? `ส่งสำเร็จ ${broadcastResult.sent}/${broadcastResult.total} ราย`
+                    : `ส่งสำเร็จ ${broadcastResult.sent} ล้มเหลว ${broadcastResult.failed}`}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400">
+              ใช้ LINE Multicast API · รองรับสูงสุด 500 รายต่อครั้ง · ข้อความจะส่งทันที
+            </p>
+          </div>
+        )}
+      </div>
 
       <div className="flex-1 overflow-auto p-4 space-y-3">
         {filtered.length === 0 ? (
