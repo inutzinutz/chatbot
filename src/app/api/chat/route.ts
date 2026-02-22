@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
     // ══════════════════════════════════════════════════════
     // STEP 1: ALWAYS run the 15-layer pipeline FIRST
     // ══════════════════════════════════════════════════════
-    const { content: pipelineContent, trace: pipelineTrace } =
-      generatePipelineResponseWithTrace(userMessage, messages, biz);
+    const pipelineResult = generatePipelineResponseWithTrace(userMessage, messages, biz);
+    const { content: pipelineContent, trace: pipelineTrace } = pipelineResult;
 
     // ══════════════════════════════════════════════════════
     // STEP 2: If pipeline resolved (layers 0-13), return it
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         content: pipelineContent,
         trace: pipelineTrace,
+        ...(pipelineResult.clarifyOptions ? { clarifyOptions: pipelineResult.clarifyOptions } : {}),
       });
     }
 

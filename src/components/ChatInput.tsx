@@ -8,12 +8,14 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  maxLength?: number;
 }
 
 export default function ChatInput({
   onSend,
   disabled = false,
   placeholder = "พิมพ์ข้อความ... (Enter เพื่อส่ง)",
+  maxLength = 500,
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -49,11 +51,12 @@ export default function ChatInput({
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
+          maxLength={maxLength}
           className={cn(
             "flex-1 resize-none bg-transparent text-sm outline-none",
             "placeholder:text-gray-400",

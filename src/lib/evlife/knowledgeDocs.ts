@@ -64,13 +64,13 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     ],
     tags: ["registration", "legal", "motorcycle"],
     content:
-      "การจดทะเบียนมอเตอร์ไซค์ไฟฟ้า EM\n\n- จดทะเบียนได้ตามกฎหมายไทย ผ่านกรมการขนส่งทางบก\n- EM เป็นแบรนด์ที่ได้รับการรับรองจาก มอก.\n- ต้องมี พ.ร.บ. รถจักรยานยนต์\n- ทางร้านมีบริการช่วยดำเนินการจดทะเบียนให้ครบ\n- โปรเดือนนี้: ฟรีจดทะเบียน + ฟรีพ.ร.บ. เมื่อซื้อทุกรุ่น!\n\nสอบถาม: LINE @evlifethailand | โทร: 094-905-6155",
+      "การจดทะเบียนมอเตอร์ไซค์ไฟฟ้า EM\n\n- จดทะเบียนได้ตามกฎหมายไทย ผ่านกรมการขนส่งทางบก\n- EM เป็นแบรนด์ที่ได้รับการรับรองจาก มอก.\n- ต้องมี พ.ร.บ. รถจักรยานยนต์\n- ทางร้านมีบริการช่วยดำเนินการจดทะเบียนให้ครบ\n- โปรปัจจุบัน: ฟรีจดทะเบียน + ฟรีพ.ร.บ. เมื่อซื้อทุกรุ่น!\n\nสอบถาม: LINE @evlifethailand | โทร: 094-905-6155",
   },
 
   // 4. Promotion — triggers tightened (no more "จดทะเบียน"/"ฟรี"/"ไฟแนนซ์")
   {
     id: 108,
-    title: "โปรโมชั่นพิเศษเดือนกุมภาพันธ์ 2568 — มอเตอร์ไซค์ไฟฟ้า EM",
+    title: "โปรโมชั่นพิเศษมอเตอร์ไซค์ไฟฟ้า EM — ล่าสุด",
     triggers: [
       "โปรโมชั่น",
       "โปร",
@@ -89,7 +89,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     ],
     tags: ["promotion", "february", "motorcycle", "EM"],
     content:
-      "โปรโมชั่นพิเศษเดือนกุมภาพันธ์ 2568 — ทุกรุ่น!\n\nสิทธิพิเศษที่ได้รับ:\n- ฟรี จดทะเบียน\n- ฟรี พ.ร.บ.\n- ฟรี ประกันรถหาย 1 ปี (เฉพาะไฟแนนซ์)\n- ฟรี บริการจัดส่งในกรุงเทพฯ และปริมณฑล\n- ฟรี จัดไฟแนนซ์ถึงหน้าบ้าน หรือที่ทำงาน\n\nของแถมพิเศษ:\n- หมวกกันน็อค\n- กระเป๋าเกะหน้า (เฉพาะ Legend Pro)\n- ถุงมือขับรถ\n- กรอบป้ายทะเบียน\n- เสื้อคลุมผ้าร่ม\n\nราคา:\n- Qarez — 38,900 บาท\n- Legend — 39,900 บาท\n- Legend Pro — 49,900 บาท\n- Enzo — 58,900 บาท\n- Milano — 59,900 บาท\n- Owen LR — 87,200 บาท\n\nสนใจสอบถาม LINE: @evlifethailand | โทร: 094-905-6155",
+      "โปรโมชั่นพิเศษ — ทุกรุ่น!\n\nสิทธิพิเศษที่ได้รับ:\n- ฟรี จดทะเบียน\n- ฟรี พ.ร.บ.\n- ฟรี ประกันรถหาย 1 ปี (เฉพาะไฟแนนซ์)\n- ฟรี บริการจัดส่งในกรุงเทพฯ และปริมณฑล\n- ฟรี จัดไฟแนนซ์ถึงหน้าบ้าน หรือที่ทำงาน\n\nของแถมพิเศษ:\n- หมวกกันน็อค\n- กระเป๋าเกะหน้า (เฉพาะ Legend Pro)\n- ถุงมือขับรถ\n- กรอบป้ายทะเบียน\n- เสื้อคลุมผ้าร่ม\n\nราคา:\n- Qarez — 38,900 บาท\n- Legend — 39,900 บาท\n- Legend Pro — 49,900 บาท\n- Enzo — 58,900 บาท\n- Milano — 59,900 บาท\n- Owen LR — 87,200 บาท\n\nสนใจสอบถาม LINE: @evlifethailand | โทร: 094-905-6155",
   },
 
   // 5. Battery compatibility by year (specific before generic battery info)
@@ -669,15 +669,17 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     tags: ["pricing", "battery"],
     content:
       "ราคาแบตเตอรี่ WELL DONE LiFePO4 12V (รวมติดตั้ง On-site กรุงเทพฯ-ปริมณฑล)\n\n" +
-      "ราคาเริ่มต้น 6,900 บาท — รองรับรถ EV ส่วนใหญ่:\n" +
-      "- BYD Atto 3: 6,900 บาท (+ ตัวล็อคแบต 250 บาท)\n" +
-      "- BYD Dolphin, BYD M6, BYD E6: 6,900 บาท\n" +
-      "- MG ZS EV, MG4, MG EP, MG ES: 6,900 บาท\n" +
-      "- NETA V, NETA X: 6,900 บาท\n" +
-      "- AION V, AION Y Plus, AION ES: 6,900 บาท\n" +
-      "- RIDDARA RD6, Deepal L07, Deepal S05: 6,900 บาท\n" +
-      "- Deepal S07: 6,900 บาท (+ ตัวล็อคแบต 250 บาท)\n" +
-      "- Hyptec HT, GWM HAVAL H6 Hybrid: 6,900 บาท\n" +
+      "ราคาตามรุ่นรถ:\n" +
+      "- Neta V: 4,900 บาท\n" +
+      "- MG ZS EV, MG4, MG EP, MG ES: 5,500 บาท\n" +
+      "- BYD Dolphin, BYD Seal, BYD Atto 3: 5,900 บาท (Atto 3 + ตัวล็อค 250 บาท)\n" +
+      "- Tesla Model 3, Model Y, Model S: 6,500 บาท\n" +
+      "- Volvo EX30, XC40: 6,500 บาท\n" +
+      "- BMW iX3 / Mercedes EQA: 7,500 บาท\n" +
+      "- Neta X, BYD M6, BYD E6, AION V/Y+/ES: 5,500–6,500 บาท (สอบถามยืนยัน)\n" +
+      "- RIDDARA RD6, Deepal L07/S05: 5,900 บาท\n" +
+      "- Deepal S07: 5,900 บาท (+ ตัวล็อค 250 บาท)\n" +
+      "- Hyptec HT, GWM HAVAL H6 Hybrid: 5,900 บาท\n" +
       "- ORA Good Cat, MG MAXUS 9: 9,500 บาท (60Ah รุ่นใหญ่)\n\n" +
       "รับประกัน 4 ปี มาตรฐาน ISO 9001 | ถ้าตรวจแล้วไม่ใช่แบตเสีย ไม่คิดค่าตรวจครับ\n" +
       "สอบถามยืนยันราคาตามรุ่นรถ: LINE @evlifethailand | โทร: 094-905-6155",
@@ -757,7 +759,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
 
   // 23. Battery SKU detail — which battery for which car
   {
-    id: 130,
+    id: 140,
     title: "แบตเตอรี่รุ่นไหนเหมาะกับรถอะไร — ตารางรุ่นรถ vs ราคา",
     triggers: [
       "เหมาะกับรถอะไร", "รถผมใช้อะไร", "riddara", "deepal", "hyptec",
@@ -788,7 +790,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
 
   // 24. Fleet / corporate purchase
   {
-    id: 131,
+    id: 141,
     title: "บริการสำหรับองค์กร/ธุรกิจ — ซื้อหลายคัน Fleet",
     triggers: [
       "fleet", "องค์กร", "บริษัท", "ธุรกิจ", "หลายคัน", "จำนวนมาก",
@@ -811,7 +813,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
 
   // 25. EM Legend award + certifications
   {
-    id: 132,
+    id: 142,
     title: "รางวัลและมาตรฐาน — EM Legend #1 EV Bike of the Year 2025",
     triggers: [
       "รางวัล", "award", "no.1", "#1", "เบอร์หนึ่ง", "ที่หนึ่ง",

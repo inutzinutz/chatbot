@@ -13,6 +13,8 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   trace?: PipelineTrace;
+  clarifyOptions?: string[];
+  isStreaming?: boolean;
 }
 
 import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
@@ -209,6 +211,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           role: "assistant",
           content: data.content,
           trace,
+          clarifyOptions: data.clarifyOptions as string[] | undefined,
         };
         setMessages((prev) => [...prev, assistantMessage]);
         setIsLoading(false);
@@ -252,7 +255,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           </div>
           <div>
             <h2 className="text-sm font-semibold text-gray-900">
-              {(businessUnitList.find((b) => b.id === businessId)?.name || "DJI 13 STORE") + " Assistant"}
+              {(businessUnitList.find((b) => b.id === businessId)?.name || "EV Life Thailand") + " Assistant"}
             </h2>
             <div className="flex items-center gap-1.5">
               <div className="h-2 w-2 rounded-full bg-green-500" />
@@ -271,13 +274,33 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
-        {messages.map((msg) => (
-          <ChatMessage
-            key={msg.id}
-            role={msg.role}
-            content={msg.content}
-            trace={msg.trace}
-          />
+        {messages.map((msg, idx) => (
+          <div key={msg.id}>
+            <ChatMessage
+              role={msg.role}
+              content={msg.content}
+              trace={msg.trace}
+            />
+            {/* Clarify option chips — only on last assistant message when not loading */}
+            {msg.role === "assistant" &&
+              msg.clarifyOptions &&
+              msg.clarifyOptions.length > 0 &&
+              idx === messages.length - 1 &&
+              !isLoading && (
+                <div className="flex flex-wrap gap-2 px-4 pb-2">
+                  {msg.clarifyOptions.map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => sendMessage(opt)}
+                      disabled={isLoading}
+                      className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-100 transition-colors"
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+          </div>
         ))}
         {isLoading && (
           <ChatMessage role="assistant" content="" isLoading={true} />
@@ -291,7 +314,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
       )}
 
       {/* Input */}
-      <ChatInput onSend={sendMessage} disabled={isLoading} />
+      <ChatInput onSend={sendMessage} disabled={isLoading} maxLength={500} />
     </div>
   );
 }
