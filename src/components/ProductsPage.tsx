@@ -3,8 +3,7 @@
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { type Product } from "@/lib/products";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
   Search,
   Plus,
@@ -245,8 +244,7 @@ function DeleteConfirm({ name, onConfirm, onCancel }: { name: string; onConfirm:
 }
 
 export default function ProductsPage({ businessId }: { businessId: string }) {
-  const config = getBusinessConfig(businessId);
-  const [items, setItems] = useLocalStorage<Product[]>(`${businessId}_products`, [...config.products]);
+  const [items, setItems, loading] = useTuning<Product>(businessId, "products");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -373,7 +371,9 @@ export default function ProductsPage({ businessId }: { businessId: string }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {filtered.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">No products found.</td>
               </tr>

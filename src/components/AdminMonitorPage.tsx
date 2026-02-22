@@ -197,17 +197,16 @@ export default function AdminMonitorPage({ businessId }: { businessId: string })
   const [period, setPeriod] = useState<"today" | "7d" | "30d">("7d");
   const [showAll, setShowAll] = useState(false);
 
-  const periodMs: Record<typeof period, number> = {
-    today: Date.now() - 24 * 60 * 60 * 1000,
-    "7d":  Date.now() - 7  * 24 * 60 * 60 * 1000,
-    "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
-  };
-
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     try {
+      const periodMs: Record<typeof period, number> = {
+        today: Date.now() - 24 * 60 * 60 * 1000,
+        "7d":  Date.now() - 7  * 24 * 60 * 60 * 1000,
+        "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
+      };
       const since = periodMs[period];
       const [statsRes, logRes] = await Promise.all([
         fetch(`/api/chat/admin?businessId=${businessId}&view=adminstats&since=${since}`),

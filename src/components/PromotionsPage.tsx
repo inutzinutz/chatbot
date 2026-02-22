@@ -2,8 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
   Search,
   Plus,
@@ -262,8 +261,7 @@ function PromoModal({
 }
 
 export default function PromotionsPage({ businessId }: { businessId: string }) {
-  const seed = SEED_PROMOTIONS[businessId] || SEED_PROMOTIONS.dji13store;
-  const [items, setItems] = useLocalStorage<Promotion[]>(`${businessId}_promotions`, [...seed]);
+  const [items, setItems, loading] = useTuning<Promotion>(businessId, "promotions");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Promotion | null | "new">(null);
   const [deleting, setDeleting] = useState<Promotion | null>(null);
@@ -435,7 +433,9 @@ export default function PromotionsPage({ businessId }: { businessId: string }) {
       </div>
 
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12 text-sm text-gray-400">กำลังโหลด...</div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-sm text-gray-400">No promotions found.</div>
         ) : (
           filtered.map((p) => (

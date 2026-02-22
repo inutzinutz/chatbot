@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { type FAQItem } from "@/lib/faq";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
   Search,
   Plus,
@@ -17,8 +15,11 @@ import {
   FolderOpen,
 } from "lucide-react";
 
-interface QuickReplyItem extends FAQItem {
+interface QuickReplyItem {
   id: number;
+  question: string;
+  answer: string;
+  category: string;
 }
 
 function QRModal({
@@ -88,11 +89,7 @@ function QRModal({
 }
 
 export default function QuickRepliesPage({ businessId }: { businessId: string }) {
-  const config = getBusinessConfig(businessId);
-  const [items, setItems] = useLocalStorage<QuickReplyItem[]>(
-    `${businessId}_quick_replies`,
-    config.faqData.map((f, i) => ({ ...f, id: i + 1 }))
-  );
+  const [items, setItems, loading] = useTuning<QuickReplyItem>(businessId, "quick-replies");
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [editing, setEditing] = useState<QuickReplyItem | null | "new">(null);
@@ -140,7 +137,9 @@ export default function QuickRepliesPage({ businessId }: { businessId: string })
       </header>
 
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12 text-sm text-gray-400">กำลังโหลด...</div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-sm text-gray-400">No replies found.</div>
         ) : (
           filtered.map((q) => (

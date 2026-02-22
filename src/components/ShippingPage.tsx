@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
-  Search,
   Plus,
   Pencil,
   Trash2,
@@ -218,8 +216,7 @@ function RuleModal({
 }
 
 export default function ShippingPage({ businessId }: { businessId: string }) {
-  const seed = SEED_SHIPPING[businessId] || SEED_SHIPPING.dji13store;
-  const [items, setItems] = useLocalStorage<ShippingRule[]>(`${businessId}_shipping`, [...seed]);
+  const [items, setItems, loading] = useTuning<ShippingRule>(businessId, "shipping");
   const [editing, setEditing] = useState<ShippingRule | null | "new">(null);
   const [deleting, setDeleting] = useState<ShippingRule | null>(null);
 
@@ -251,7 +248,9 @@ export default function ShippingPage({ businessId }: { businessId: string }) {
       </header>
 
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {items.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12 text-sm text-gray-400">กำลังโหลด...</div>
+        ) : items.length === 0 ? (
           <div className="text-center py-12 text-sm text-gray-400">No shipping rules.</div>
         ) : (
           items.map((r) => (

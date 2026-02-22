@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { type Intent } from "@/lib/intentPolicies";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
   Search, Plus, Pencil, Trash2, X, Zap, Save,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight,
@@ -312,8 +311,7 @@ function IntentCard({
 
 // ─── Page ─────────────────────────────────────────────────────
 export default function IntentsPage({ businessId }: { businessId: string }) {
-  const config = getBusinessConfig(businessId);
-  const [items, setItems] = useLocalStorage<Intent[]>(`${businessId}_intents`, [...config.intents]);
+  const [items, setItems, loading] = useTuning<Intent>(businessId, "intents");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
   const [editing, setEditing] = useState<Intent | null | "new">(null);
@@ -418,7 +416,9 @@ export default function IntentsPage({ businessId }: { businessId: string }) {
 
       {/* List */}
       <div className="flex-1 overflow-auto p-4 space-y-2">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-16 text-sm text-gray-400">กำลังโหลด...</div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-sm text-gray-400">
             <Zap className="h-8 w-8 mx-auto mb-3 text-gray-200" />
             No intents found.

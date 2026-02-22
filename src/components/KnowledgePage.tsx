@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { type KnowledgeDoc } from "@/lib/knowledgeDocs";
-import { useLocalStorage } from "@/lib/useLocalStorage";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { useTuning } from "@/lib/useTuning";
 import {
   Search,
   Plus,
@@ -116,8 +115,7 @@ function DocModal({
 }
 
 export default function KnowledgePage({ businessId }: { businessId: string }) {
-  const config = getBusinessConfig(businessId);
-  const [items, setItems] = useLocalStorage<KnowledgeDoc[]>(`${businessId}_knowledge`, [...config.knowledgeDocs]);
+  const [items, setItems, loading] = useTuning<KnowledgeDoc>(businessId, "knowledge");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<KnowledgeDoc | null | "new">(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
@@ -168,7 +166,9 @@ export default function KnowledgePage({ businessId }: { businessId: string }) {
       </header>
 
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12 text-sm text-gray-400">กำลังโหลด...</div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-sm text-gray-400">No documents found.</div>
         ) : (
           filtered.map((d) => (

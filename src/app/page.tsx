@@ -237,7 +237,7 @@ export default function Home() {
       case "shipping":
         return <ShippingPage key={businessId} businessId={businessId} />;
       case "ai-inspector":
-        return <AIInspector />;
+        return <AIInspector key={businessId} businessId={businessId} />;
       case "ai-testing":
         return <AITesting key={businessId} businessId={businessId} />;
       default:

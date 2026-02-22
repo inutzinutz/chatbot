@@ -202,12 +202,6 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const [bhSaved, setBhSaved] = useState(false);
   const [bhError, setBhError] = useState<string | null>(null);
 
-  const sinceMap = {
-    today: new Date(todayThai() + "T00:00:00+07:00").getTime(),
-    "7d": Date.now() - 7 * 24 * 60 * 60 * 1000,
-    "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
-  };
-
   // ── Fetch business hours ──
   const fetchBizHours = useCallback(async () => {
     setBhLoading(true);
@@ -228,12 +222,19 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
+      const sinceMap = {
+        today: new Date(todayThai() + "T00:00:00+07:00").getTime(),
+        "7d": Date.now() - 7 * 24 * 60 * 60 * 1000,
+        "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
+      };
       const since = sinceMap[period];
       const r = await fetch(
         `/api/monitoring?businessId=${businessId}&view=users&since=${since}`
       );
-      const data = await r.json() as UsersOverview;
-      setUsersData(data);
+      if (r.ok) {
+        const data = await r.json() as UsersOverview;
+        setUsersData(data);
+      }
     } finally {
       setLoading(false);
     }
@@ -244,12 +245,19 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const fetchUserDetail = useCallback(async (username: string) => {
     setUserDetailLoading(true);
     try {
+      const sinceMap = {
+        today: new Date(todayThai() + "T00:00:00+07:00").getTime(),
+        "7d": Date.now() - 7 * 24 * 60 * 60 * 1000,
+        "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
+      };
       const since = sinceMap[period];
       const r = await fetch(
         `/api/monitoring?businessId=${businessId}&view=user_detail&username=${username}&since=${since}`
       );
-      const data = await r.json() as UserDetail;
-      setUserDetail(data);
+      if (r.ok) {
+        const data = await r.json() as UserDetail;
+        setUserDetail(data);
+      }
     } finally {
       setUserDetailLoading(false);
     }

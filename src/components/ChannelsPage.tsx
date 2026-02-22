@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 import { getBusinessConfig } from "@/lib/businessUnits";
@@ -860,16 +860,15 @@ function ChannelDetail({
   const [visionSaving, setVisionSaving] = useState(false);
 
   // Load vision status when LINE channel is opened
-  const [visionLoaded, setVisionLoaded] = useState(false);
-  if (channel.type === "LINE" && !visionLoaded) {
-    setVisionLoaded(true);
+  useEffect(() => {
+    if (channel.type !== "LINE") return;
     fetch(`/api/line/settings/${businessId}`)
       .then((r) => r.json())
       .then((data) => {
         if (typeof data.visionEnabled === "boolean") setVisionEnabled(data.visionEnabled);
       })
       .catch(() => { /* non-critical */ });
-  }
+  }, [channel.type, businessId]);
 
   const toggleVision = async (enabled: boolean) => {
     setVisionSaving(true);
