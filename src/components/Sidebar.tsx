@@ -239,14 +239,18 @@ export default function Sidebar({
                     <button
                       onClick={() => onNavigate(item.id)}
                       className={cn(
-                        "flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        "relative flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
                         isActive
-                          ? "bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 shadow-sm"
+                          ? "bg-indigo-50 text-indigo-700"
                           : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
                         collapsed && "justify-center px-0"
                       )}
                       title={collapsed ? item.label : undefined}
                     >
+                      {/* Active left-border accent */}
+                      {isActive && !collapsed && (
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-indigo-600" />
+                      )}
                       <Icon
                         className={cn(
                           "h-4 w-4 shrink-0",
@@ -255,7 +259,7 @@ export default function Sidebar({
                       />
                       {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
                       {!collapsed && "badge" in item && item.badge && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white text-indigo-600 font-medium border border-indigo-100">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 font-semibold">
                           {item.badge}
                         </span>
                       )}

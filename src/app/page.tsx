@@ -25,6 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { getBusinessConfig } from "@/lib/businessUnits";
+import { ToastContainer, PageWrapper } from "@/components/ui";
 
 // ── Auth user type ──
 
@@ -204,14 +205,18 @@ export default function Home() {
         return <LiveChatPage key={businessId} businessId={businessId} />;
       case "chat":
         return (
-          <div className="flex-1 flex flex-col bg-gray-50/50 p-4">
-            <div className="flex-1 overflow-hidden rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/30 bg-white">
+          <PageWrapper className="p-4">
+            <div className="h-full overflow-hidden rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/30 bg-white">
               <ChatWindow key={businessId} businessId={businessId} />
             </div>
-          </div>
+          </PageWrapper>
         );
       case "analytics":
-        return <AnalyticsDashboard key={businessId} businessId={businessId} />;
+        return (
+          <PageWrapper className="p-6 bg-gray-50/50">
+            <AnalyticsDashboard key={businessId} businessId={businessId} />
+          </PageWrapper>
+        );
       case "admin-monitor":
         return <AdminMonitorPage key={businessId} businessId={businessId} />;
       case "monitoring":
@@ -256,6 +261,7 @@ export default function Home() {
         onLogout={handleLogout}
       />
       {renderContent()}
+      <ToastContainer />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { RealAnalyticsData } from "@/app/api/analytics/route";
+import { Spinner } from "@/components/ui";
 import {
   Users, MessageSquare, Flame, TrendingUp, BarChart3,
   Globe, Clock, Layers, RefreshCw, Pin, BotOff,
@@ -688,7 +689,7 @@ export default function AnalyticsDashboard({ businessId }: { businessId: string 
     : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -729,7 +730,7 @@ export default function AnalyticsDashboard({ businessId }: { businessId: string 
       {/* Tab content */}
       {tab === "overview" && (
         loading
-          ? <div className="space-y-6">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-32" />)}</div>
+          ? <div className="flex items-center justify-center py-20"><Spinner size="lg" /></div>
           : data ? <OverviewTab data={data} /> : null
       )}
       {tab === "topics"    && <TopicsTab    businessId={businessId} />}

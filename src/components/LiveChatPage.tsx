@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CRMPanel from "@/components/CRMPanel";
+import { PlatformBadge } from "@/components/ui";
 import type {
   ChatConversation,
   ChatMessage,
@@ -961,18 +962,12 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                       {conv.pinnedReason}
                     </p>
                   )}
-                  {/* Platform + Assigned admin badge */}
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {conv.source === "facebook" && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 border border-blue-200 uppercase">FB</span>
-                    )}
-                    {conv.source === "line" && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-600 border border-green-200 uppercase">LINE</span>
-                    )}
-                    {conv.source === "web" && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200 uppercase">WEB</span>
-                    )}
-                  </div>
+                   {/* Platform badge */}
+                   {conv.source && (
+                     <div className="flex items-center gap-1.5 mt-0.5">
+                       <PlatformBadge source={conv.source} />
+                     </div>
+                   )}
                   {conv.assignedAdmin && (
                     <p className="text-[10px] text-indigo-500 mt-0.5 flex items-center gap-1">
                       <Shield className="h-2.5 w-2.5" />
@@ -1029,21 +1024,12 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                     {activeConv?.displayName || "Customer"}
                   </p>
                   <div className="flex items-center gap-2 text-[10px] text-gray-400">
-                    {activeConv?.source === "facebook" && (
-                      <span className="font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full border border-blue-200">Facebook</span>
-                    )}
-                    {activeConv?.source === "line" && (
-                      <span className="font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full border border-green-200">LINE</span>
-                    )}
-                    {activeConv?.source === "web" && (
-                      <span className="font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded-full border border-gray-200">Web</span>
-                    )}
-                    {!activeConv?.source && (
-                      <span>LINE</span>
-                    )}
-                    <Circle className="h-1 w-1 fill-current" />
-                    <span className="font-mono">
-                      {activeUserId.slice(0, 16)}...
+                    <PlatformBadge source={activeConv?.source ?? "line"} />
+                    <Circle className="h-1 w-1 fill-current opacity-40" />
+                    <span className="font-mono opacity-60 select-all" title={activeUserId}>
+                      {activeUserId.length > 20
+                        ? `${activeUserId.slice(0, 8)}…${activeUserId.slice(-6)}`
+                        : activeUserId}
                     </span>
                   </div>
                 </div>
@@ -1104,7 +1090,7 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                       "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                       activeConv.botEnabled
                         ? "bg-green-50 text-green-700 hover:bg-green-100"
-                        : "bg-orange-50 text-orange-700 hover:bg-orange-100"
+                        : "bg-red-50 text-red-700 hover:bg-red-100"
                     )}
                   >
                     {activeConv.botEnabled ? (

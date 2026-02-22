@@ -14,6 +14,7 @@ import {
   Clock,
   User,
 } from "lucide-react";
+import { Spinner, EmptyState } from "@/components/ui";
 
 /* ------------------------------------------------------------------ */
 /*  Types (mirrors chatStore AdminActivityEntry)                       */
@@ -270,15 +271,19 @@ export default function AdminMonitorPage({ businessId }: { businessId: string })
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-gray-400">กำลังโหลด...</div>
+          <div className="flex items-center justify-center py-16">
+            <Spinner size="lg" />
+          </div>
         ) : (
           <>
             {/* Stat cards */}
             {usernames.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400">
-                <Shield className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">ยังไม่มีข้อมูลกิจกรรม</p>
-                <p className="text-xs mt-1">กิจกรรมจะแสดงเมื่อทีมงานเริ่มใช้งาน</p>
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <EmptyState
+                  icon={<Shield className="h-6 w-6" />}
+                  title="ยังไม่มีข้อมูลกิจกรรม"
+                  description="กิจกรรมจะแสดงเมื่อทีมงานเริ่มใช้งาน Live Chat"
+                />
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -367,7 +372,11 @@ export default function AdminMonitorPage({ businessId }: { businessId: string })
 
               <div className="px-4 divide-y divide-gray-50">
                 {filteredLog.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-8">ไม่มีกิจกรรม</p>
+                  <EmptyState
+                    icon={<Clock className="h-5 w-5" />}
+                    title="ไม่มีกิจกรรม"
+                    description={filterUser ? `ไม่พบกิจกรรมสำหรับ ${filterUser}` : "ยังไม่มีบันทึก"}
+                  />
                 ) : (
                   <>
                     {displayedLog.map((entry) => (
