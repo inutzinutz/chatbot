@@ -24,10 +24,13 @@
 
   // Key → branding config
   var KEY_CONFIG = {
-    'evlifethailand': { color: '#f97316', shadow: 'rgba(249,115,22,0.35)', title: 'EV Life Thailand' },
-    'evlife_demo':    { color: '#f97316', shadow: 'rgba(249,115,22,0.35)', title: 'EV Life Thailand' },
-    'script_demo':    { color: '#ef4444', shadow: 'rgba(239,68,68,0.35)',  title: 'DJI 13 STORE' },
-    'script_test':    { color: '#ef4444', shadow: 'rgba(239,68,68,0.35)',  title: 'DJI 13 STORE' },
+    'evlifethailand':      { color: '#f97316', shadow: 'rgba(249,115,22,0.35)', title: 'EV Life Thailand' },
+    'evlife_demo':         { color: '#f97316', shadow: 'rgba(249,115,22,0.35)', title: 'EV Life Thailand' },
+    'script_4x9xsyeyuk8': { color: '#ef4444', shadow: 'rgba(239,68,68,0.35)',  title: 'DJI 13 STORE' },
+    'script_demo':         { color: '#ef4444', shadow: 'rgba(239,68,68,0.35)',  title: 'DJI 13 STORE' },
+    'script_test':         { color: '#ef4444', shadow: 'rgba(239,68,68,0.35)',  title: 'DJI 13 STORE' },
+    'script_dji13service': { color: '#b91c1c', shadow: 'rgba(185,28,28,0.35)', title: 'DJI 13 Service Plus' },
+    'dji13service_demo':   { color: '#b91c1c', shadow: 'rgba(185,28,28,0.35)', title: 'DJI 13 Service Plus' },
   };
   var cfg = KEY_CONFIG[key] || { color: '#4f46e5', shadow: 'rgba(99,102,241,0.35)', title: 'Chat' };
 
