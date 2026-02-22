@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import type { ChatConversation, ChatMessage, ChatSummary } from "@/lib/chatStore";
+import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
 
 // Thai timezone offset: UTC+7
 const TH_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -57,6 +58,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const businessId = searchParams.get("businessId");
   const view = searchParams.get("view") || "overview";
+
+  // Auth guard
+  if (businessId) {
+    const session = await requireAdminSession(req, businessId);
+    if (!session) return unauthorizedResponse();
+  }
 
   if (!businessId) {
     return NextResponse.json({ error: "Missing businessId" }, { status: 400 });

@@ -16,6 +16,7 @@ import {
   getTokenStatsByModel,
   getTokenLog,
 } from "@/lib/tokenTracker";
+import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -36,6 +37,10 @@ export async function GET(req: NextRequest) {
   if (!businessId) {
     return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
   }
+
+  // Auth guard
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
 
   const view = req.nextUrl.searchParams.get("view") || "users";
 

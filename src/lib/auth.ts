@@ -11,6 +11,9 @@
 /*    AUTH_USERS=dji13store:admin:dji13store,evlifethailand:admin:evlifethailand,*:superadmin:droidmind2025
 /* ------------------------------------------------------------------ */
 
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+
 export interface AuthUser {
   username: string;
   businessId: string; // "*" for super admin
@@ -144,3 +147,39 @@ export async function verifySessionToken(
 // ── Cookie name ──
 
 export const SESSION_COOKIE = "droidmind_session";
+
+// ── Admin guard — call at top of admin route handlers ──
+//
+// Returns the verified session or null if unauthorized.
+// Cross-business check: if businessId is provided, verify the session's
+// allowedBusinessIds includes it (super-admin always allowed).
+//
+// Usage:
+//   const session = await requireAdminSession(req, businessId);
+//   if (!session) return unauthorizedResponse();
+
+export async function requireAdminSession(
+  req: NextRequest,
+  businessId?: string | null
+): Promise<SessionPayload | null> {
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  const session = await verifySessionToken(token);
+  if (!session) return null;
+
+  // Cross-business check
+  if (businessId && !session.isSuperAdmin) {
+    if (!session.allowedBusinessIds.includes(businessId)) return null;
+  }
+
+  return session;
+}
+
+export function unauthorizedResponse(message = "Unauthorized"): NextResponse {
+  return NextResponse.json({ error: message }, { status: 401 });
+}
+
+export function forbiddenResponse(message = "Forbidden"): NextResponse {
+  return NextResponse.json({ error: message }, { status: 403 });
+}

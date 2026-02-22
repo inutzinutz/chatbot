@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
+import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -134,6 +135,10 @@ export function checkBusinessHours(config: BusinessHoursConfig): {
 export async function GET(req: NextRequest) {
   const businessId = req.nextUrl.searchParams.get("businessId") || "dji13store";
 
+  // Auth guard
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
+
   try {
     const config = await getBusinessHours(businessId);
     const status = checkBusinessHours(config);
@@ -166,6 +171,10 @@ export async function PUT(req: NextRequest) {
     if (!businessId || !config) {
       return NextResponse.json({ error: "Missing businessId or config" }, { status: 400 });
     }
+
+    // Auth guard
+    const session = await requireAdminSession(req, businessId);
+    if (!session) return unauthorizedResponse();
 
     const g = globalThis as unknown as { __redis?: import("ioredis").default };
     if (!g.__redis) {

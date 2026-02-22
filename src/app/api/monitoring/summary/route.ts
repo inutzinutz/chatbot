@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import type { ChatSummary } from "@/lib/chatStore";
 import { logTokenUsage } from "@/lib/tokenTracker";
+import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -26,6 +27,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing businessId or userId" }, { status: 400 });
   }
 
+  // Auth guard
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
+
   const summary = await chatStore.getChatSummary(businessId, userId);
   return NextResponse.json({ summary });
 }
@@ -41,6 +46,10 @@ export async function POST(req: NextRequest) {
     if (!businessId || !userId) {
       return NextResponse.json({ error: "Missing businessId or userId" }, { status: 400 });
     }
+
+    // Auth guard
+    const session = await requireAdminSession(req, businessId);
+    if (!session) return unauthorizedResponse();
 
     // Check cache unless force=true
     if (!force) {

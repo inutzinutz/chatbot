@@ -181,9 +181,11 @@ function stripMarkdown(text: string): string {
 async function callGptFallback(
   userMessage: string,
   systemPrompt: string,
-  businessId: string
+  businessId: string,
+  history: { role: string; content: string }[] = []
 ): Promise<string | null> {
   const messages: { role: string; content: string }[] = [
+    ...history,
     { role: "user", content: userMessage },
   ];
 
@@ -838,8 +840,19 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // ── Run pipeline ──
+      // ── Run pipeline — load history for context ──
+      const recentMsgs = await chatStore.getMessages(businessId, lineUserId);
+      // Map stored messages → ChatMessage format (last 20 turns, skip system/admin msgs)
+      const historyMessages: ChatMessage[] = recentMsgs
+        .filter((m) => m.role === "customer" || m.role === "bot")
+        .slice(-20)
+        .map((m) => ({
+          role: m.role === "customer" ? "user" : "assistant",
+          content: m.content,
+        }));
+      // Append current user message
       const chatMessages: ChatMessage[] = [
+        ...historyMessages,
         { role: "user", content: userText },
       ];
 
@@ -977,7 +990,7 @@ export async function POST(req: NextRequest) {
         replyText = pipelineContent;
       } else {
         const systemPrompt = buildSystemPrompt(biz);
-        const gptResponse = await callGptFallback(userText, systemPrompt, businessId);
+        const gptResponse = await callGptFallback(userText, systemPrompt, businessId, historyMessages);
         replyText = gptResponse || pipelineContent;
         diag.gptUsed = !!gptResponse;
       }

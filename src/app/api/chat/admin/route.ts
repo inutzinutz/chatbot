@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
-import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -49,6 +49,10 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  // Auth guard — must have a valid session for this business
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
 
   const userId = req.nextUrl.searchParams.get("userId");
   const view = req.nextUrl.searchParams.get("view");
@@ -113,6 +117,10 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  // Auth guard — must have a valid session for this business
+  const postSession = await requireAdminSession(req, businessId);
+  if (!postSession) return unauthorizedResponse();
 
   // Extract who is performing this action
   const sentBy = await getSessionUsername(req);
