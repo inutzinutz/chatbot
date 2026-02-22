@@ -6,6 +6,11 @@ import {
   type ChatMessage,
 } from "@/lib/pipeline";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
+import {
+  buildVisionSystemPrompt,
+  buildVisionUserPrompt,
+  buildPdfUserPrompt,
+} from "@/lib/visionPrompt";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -332,14 +337,15 @@ async function analyzeViaVision(
     return "ขออภัยครับ ระบบยังไม่ได้ตั้งค่า AI Key สำหรับวิเคราะห์รูปภาพ";
   }
 
+  const biz = getBusinessConfig(businessId);
+  const systemPrompt = buildVisionSystemPrompt(biz);
+
   const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   const isImage = SUPPORTED_IMAGE_TYPES.includes(mimeType);
   const isPDF = mimeType === "application/pdf";
 
   if (isImage) {
-    const prompt = userPrompt
-      ? `ผู้ใช้ถามว่า: "${userPrompt}"\n\nกรุณาวิเคราะห์รูปภาพและตอบคำถาม`
-      : "กรุณาวิเคราะห์รูปภาพนี้ บอกว่าเห็นอะไร และมีข้อมูลที่เกี่ยวข้องกับการให้บริการหรือสินค้าของเราอย่างไร ตอบเป็นภาษาไทยสั้นๆ กระชับ";
+    const userMsg = buildVisionUserPrompt(userPrompt);
 
     if (openaiKey) {
       try {
@@ -348,13 +354,14 @@ async function analyzeViaVision(
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({
             model: "gpt-4o",
-            max_tokens: 600,
+            max_tokens: 700,
             messages: [
+              { role: "system", content: systemPrompt },
               {
                 role: "user",
                 content: [
                   { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" } },
-                  { type: "text", text: prompt },
+                  { type: "text", text: userMsg },
                 ],
               },
             ],
@@ -374,12 +381,13 @@ async function analyzeViaVision(
           headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
             model: "claude-opus-4-5",
-            max_tokens: 600,
+            max_tokens: 700,
+            system: systemPrompt,
             messages: [{
               role: "user",
               content: [
                 { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } },
-                { type: "text", text: prompt },
+                { type: "text", text: userMsg },
               ],
             }],
           }),
@@ -395,8 +403,6 @@ async function analyzeViaVision(
   }
 
   if (isPDF) {
-    // For LINE webhook, we call our own /api/vision endpoint is not available (no internal URL)
-    // Instead, use pdf-parse directly
     try {
       const pdfParseModule = await import("pdf-parse");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -405,11 +411,11 @@ async function analyzeViaVision(
         (pdfParseModule as any).default ?? (pdfParseModule as any);
       const buffer = Buffer.from(base64, "base64");
       const pdfData = await pdfParse(buffer);
-      const text = pdfData.text?.trim().slice(0, 3000) || "";
+      const text = pdfData.text?.trim() || "";
 
       if (!text) return `ไฟล์ PDF "${fileName}" ไม่มีข้อความที่อ่านได้ครับ (อาจเป็น PDF รูปภาพ) กรุณาส่งเป็นรูปภาพแทนครับ`;
 
-      const prompt = `ช่วยสรุปเนื้อหาสำคัญจากไฟล์ PDF "${fileName}" ให้กระชับ ตอบเป็นภาษาไทย:\n\n${text}`;
+      const prompt = buildPdfUserPrompt(fileName, text, userPrompt);
 
       if (openaiKey) {
         const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -417,13 +423,33 @@ async function analyzeViaVision(
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({
             model: "gpt-4o-mini",
-            max_tokens: 600,
-            messages: [{ role: "user", content: prompt }],
+            max_tokens: 700,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: prompt },
+            ],
           }),
         });
         if (resp.ok) {
           const data = await resp.json() as { choices: { message: { content: string } }[] };
           return data.choices?.[0]?.message?.content || "ไม่สามารถสรุป PDF ได้";
+        }
+      }
+
+      if (anthropicKey) {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5",
+            max_tokens: 700,
+            system: systemPrompt,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json() as { content: { type: string; text: string }[] };
+          return data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถสรุป PDF ได้";
         }
       }
     } catch (err) {
