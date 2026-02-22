@@ -5,7 +5,7 @@ import {
   Users, MessageSquare, Clock, AlertTriangle, CheckCircle,
   ChevronRight, RefreshCw, Calendar, TrendingUp, Bot,
   Pin, Wifi, Activity, BarChart2, FileText, Loader2,
-  ArrowRight, User, Timer, Cpu,
+  ArrowRight, User, Timer, Cpu, Settings, ToggleLeft, ToggleRight, Save,
 } from "lucide-react";
 import type { ChatSummary, PendingWork, DailyDigest } from "@/lib/chatStore";
 
@@ -159,7 +159,7 @@ interface MonitoringPageProps {
   businessId: string;
 }
 
-type Tab = "users" | "pending" | "summaries" | "daily" | "tokens";
+type Tab = "users" | "pending" | "summaries" | "daily" | "tokens" | "settings";
 
 export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const [tab, setTab] = useState<Tab>("users");
@@ -189,11 +189,37 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const [tokensData, setTokensData] = useState<TokensData | null>(null);
   const [tokenDays, setTokenDays] = useState<30 | 7 | 1>(30);
 
+  // Settings tab — Business Hours state
+  interface BHSchedule { day: string; open: string; close: string; active: boolean; }
+  interface BHConfig { enabled: boolean; timezone: string; offHoursMessage: string; schedule: BHSchedule[]; }
+  const [bhConfig, setBhConfig] = useState<BHConfig | null>(null);
+  const [bhStatus, setBhStatus] = useState<{ isOpen: boolean; dayName: string; currentTime: string; openTime: string; closeTime: string } | null>(null);
+  const [bhLoading, setBhLoading] = useState(false);
+  const [bhSaving, setBhSaving] = useState(false);
+  const [bhSaved, setBhSaved] = useState(false);
+  const [bhError, setBhError] = useState<string | null>(null);
+
   const sinceMap = {
     today: new Date(todayThai() + "T00:00:00+07:00").getTime(),
     "7d": Date.now() - 7 * 24 * 60 * 60 * 1000,
     "30d": Date.now() - 30 * 24 * 60 * 60 * 1000,
   };
+
+  // ── Fetch business hours ──
+  const fetchBizHours = useCallback(async () => {
+    setBhLoading(true);
+    try {
+      const r = await fetch(`/api/business-hours?businessId=${businessId}`);
+      if (r.ok) {
+        const data = await r.json() as { config: BHConfig; status: typeof bhStatus };
+        setBhConfig(data.config);
+        setBhStatus(data.status);
+      }
+    } finally {
+      setBhLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]);
 
   // ── Fetch users overview ──
   const fetchUsers = useCallback(async () => {
@@ -313,7 +339,8 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
     if (tab === "summaries") fetchSummaries();
     if (tab === "daily") fetchDigest();
     if (tab === "tokens") fetchTokens();
-  }, [tab, fetchUsers, fetchPending, fetchSummaries, fetchDigest, fetchTokens]);
+    if (tab === "settings") fetchBizHours();
+  }, [tab, fetchUsers, fetchPending, fetchSummaries, fetchDigest, fetchTokens, fetchBizHours]);
 
   useEffect(() => {
     if (selectedUser) fetchUserDetail(selectedUser);
@@ -332,6 +359,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
     { id: "summaries", label: "สรุปแชท", icon: <FileText size={15} /> },
     { id: "daily", label: "Daily Digest", icon: <Calendar size={15} /> },
     { id: "tokens", label: "Tokens", icon: <Cpu size={15} /> },
+    { id: "settings", label: "ตั้งค่า", icon: <Settings size={15} /> },
   ];
 
   return (
@@ -352,6 +380,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
             if (tab === "summaries") fetchSummaries();
             if (tab === "daily") fetchDigest();
             if (tab === "tokens") fetchTokens();
+            if (tab === "settings") fetchBizHours();
           }}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border"
         >
@@ -1218,7 +1247,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
                     </div>
                   )}
 
-                  {totals.calls === 0 && (
+                   {totals.calls === 0 && (
                     <div className="text-center py-16 text-gray-400">
                       <Cpu size={40} className="mx-auto mb-3 opacity-30" />
                       <p className="text-sm">ยังไม่มีข้อมูล Token Usage</p>
@@ -1226,6 +1255,202 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
                     </div>
                   )}
                 </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ══════════════════════════ SETTINGS TAB ══════════════════════════ */}
+        {tab === "settings" && (
+          <div className="p-6 max-w-2xl mx-auto space-y-6">
+            <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+              <Clock size={18} className="text-indigo-500" />
+              เวลาทำการ (Business Hours)
+            </h2>
+
+            {bhLoading && !bhConfig && (
+              <div className="flex items-center justify-center py-16 text-gray-400">
+                <Loader2 size={28} className="animate-spin mr-3" />
+                <span className="text-sm">กำลังโหลด...</span>
+              </div>
+            )}
+
+            {bhConfig && (() => {
+              const DAY_LABELS: Record<string, string> = {
+                Sunday: "อาทิตย์", Monday: "จันทร์", Tuesday: "อังคาร",
+                Wednesday: "พุธ", Thursday: "พฤหัส", Friday: "ศุกร์", Saturday: "เสาร์",
+              };
+
+              const updateSchedule = (idx: number, field: "open" | "close" | "active", val: string | boolean) => {
+                const newSchedule = bhConfig.schedule.map((s, i) =>
+                  i === idx ? { ...s, [field]: val } : s
+                );
+                setBhConfig({ ...bhConfig, schedule: newSchedule });
+              };
+
+              const handleSave = async () => {
+                setBhSaving(true);
+                setBhError(null);
+                try {
+                  const res = await fetch("/api/business-hours", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ businessId, config: bhConfig }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json() as { config: BHConfig; status: typeof bhStatus };
+                    setBhConfig(data.config);
+                    setBhStatus(data.status);
+                    setBhSaved(true);
+                    setTimeout(() => setBhSaved(false), 2500);
+                  } else {
+                    const err = await res.json().catch(() => ({ error: "Unknown error" })) as { error?: string };
+                    setBhError(err.error || `HTTP ${res.status}`);
+                  }
+                } catch (e) {
+                  setBhError(String(e));
+                } finally {
+                  setBhSaving(false);
+                }
+              };
+
+              return (
+                <>
+                  {/* Status badge */}
+                  {bhStatus && (
+                    <div className={`rounded-xl px-4 py-3 flex items-center gap-3 border ${bhStatus.isOpen ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
+                      <div className={`h-3 w-3 rounded-full ${bhStatus.isOpen ? "bg-green-500" : "bg-amber-400"} animate-pulse`} />
+                      <div>
+                        <p className={`text-sm font-semibold ${bhStatus.isOpen ? "text-green-700" : "text-amber-700"}`}>
+                          {bhStatus.isOpen ? "อยู่ในเวลาทำการ" : "นอกเวลาทำการ"}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {bhStatus.dayName} เวลา {bhStatus.currentTime} น. | เปิด {bhStatus.openTime}–{bhStatus.closeTime} น.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Enable toggle */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => setBhConfig({ ...bhConfig, enabled: !bhConfig.enabled })}
+                      className="flex items-center gap-3 w-full text-left"
+                    >
+                      {bhConfig.enabled
+                        ? <ToggleRight size={24} className="text-indigo-500 shrink-0" />
+                        : <ToggleLeft size={24} className="text-gray-300 shrink-0" />}
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">เปิดใช้ Business Hours</p>
+                        <p className="text-xs text-gray-400">
+                          เปิด: AI จะรู้ว่าอยู่นอกเวลาทำการและแจ้งลูกค้าตามที่ตั้งค่า<br />
+                          ปิด: AI ตอบปกติตลอด 24 ชม. โดยไม่มีบริบทเวลาทำการ
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* Timezone */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-700">Timezone</label>
+                      <select
+                        value={bhConfig.timezone}
+                        onChange={(e) => setBhConfig({ ...bhConfig, timezone: e.target.value })}
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-sm text-gray-900 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 focus:outline-none"
+                      >
+                        <option value="Asia/Bangkok">Asia/Bangkok (GMT+7)</option>
+                        <option value="Asia/Tokyo">Asia/Tokyo (GMT+9)</option>
+                        <option value="UTC">UTC (GMT+0)</option>
+                      </select>
+                    </div>
+
+                    {/* Off-hours message */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-700">
+                        ข้อความบริบทนอกเวลาทำการ (สำหรับ AI)
+                      </label>
+                      <textarea
+                        value={bhConfig.offHoursMessage}
+                        onChange={(e) => setBhConfig({ ...bhConfig, offHoursMessage: e.target.value })}
+                        rows={3}
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 focus:outline-none resize-none"
+                      />
+                      <p className="text-[11px] text-gray-400">
+                        ข้อความนี้จะถูก inject เข้า system prompt เพื่อให้ AI รู้บริบทว่าอยู่นอกเวลาทำการ
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Weekly schedule */}
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+                      <Calendar size={14} className="text-gray-400" />
+                      <span className="text-xs font-semibold text-gray-700">ตารางรายสัปดาห์</span>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {bhConfig.schedule.map((day, idx) => (
+                        <div
+                          key={day.day}
+                          className={`flex items-center gap-3 px-4 py-2.5 text-sm ${!day.active ? "opacity-50" : ""}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => updateSchedule(idx, "active", !day.active)}
+                            className="shrink-0"
+                          >
+                            {day.active
+                              ? <ToggleRight size={20} className="text-indigo-500" />
+                              : <ToggleLeft size={20} className="text-gray-300" />}
+                          </button>
+                          <span className="w-16 text-xs font-medium text-gray-700">
+                            {DAY_LABELS[day.day] || day.day}
+                          </span>
+                          <input
+                            type="time"
+                            value={day.open}
+                            onChange={(e) => updateSchedule(idx, "open", e.target.value)}
+                            disabled={!day.active}
+                            className="rounded border border-gray-200 bg-gray-50/60 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:border-indigo-300 disabled:opacity-40"
+                          />
+                          <span className="text-xs text-gray-400">ถึง</span>
+                          <input
+                            type="time"
+                            value={day.close}
+                            onChange={(e) => updateSchedule(idx, "close", e.target.value)}
+                            disabled={!day.active}
+                            className="rounded border border-gray-200 bg-gray-50/60 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:border-indigo-300 disabled:opacity-40"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Error */}
+                  {bhError && (
+                    <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-600">
+                      {bhError}
+                    </div>
+                  )}
+
+                  {/* Save button */}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={bhSaving}
+                      className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                        bhSaved
+                          ? "bg-green-500 text-white"
+                          : bhSaving
+                          ? "bg-indigo-400 text-white cursor-wait"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                      }`}
+                    >
+                      <Save size={14} />
+                      {bhSaved ? "บันทึกแล้ว!" : bhSaving ? "กำลังบันทึก..." : "บันทึก"}
+                    </button>
+                  </div>
+                </>
               );
             })()}
           </div>

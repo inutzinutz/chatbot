@@ -211,9 +211,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Fetch business hours context (fire-and-forget fetch to Node.js endpoint) ──
+    let offHoursNote: string | undefined;
+    try {
+      const bhUrl = new URL("/api/business-hours", req.url);
+      bhUrl.searchParams.set("businessId", businessId);
+      const bhResp = await fetch(bhUrl.toString());
+      if (bhResp.ok) {
+        const bhData = await bhResp.json() as {
+          config: { enabled: boolean; offHoursMessage: string };
+          status: { isOpen: boolean; dayName: string; currentTime: string; openTime: string; closeTime: string };
+        };
+        if (bhData.config.enabled && !bhData.status.isOpen) {
+          offHoursNote = bhData.config.offHoursMessage;
+        }
+      }
+    } catch {
+      // non-fatal: if check fails, proceed without off-hours note
+    }
+
     // ── Priority 2: Anthropic Claude (streaming) ──
     if (anthropicKey) {
-      const systemPrompt = buildSystemPrompt(biz);
+      const systemPrompt = buildSystemPrompt(biz, offHoursNote);
 
       const anthropicMessages = messages.slice(-10).map((m) => ({
         role: m.role === "system" ? ("user" as const) : m.role,
@@ -376,7 +395,7 @@ export async function POST(req: NextRequest) {
 
     // ── Priority 2: OpenAI ──
     if (openaiKey) {
-      const systemPrompt = buildSystemPrompt(biz);
+      const systemPrompt = buildSystemPrompt(biz, offHoursNote);
 
       const response = await fetch(
         "https://api.openai.com/v1/chat/completions",

@@ -585,7 +585,7 @@ function buildDetailedProductResponseGeneric(p: Product, biz: BusinessConfig): s
 // SYSTEM PROMPT — business-aware (for GPT fallback)
 // ─────────────────────────────────────────────────────────────
 
-export function buildSystemPrompt(biz: BusinessConfig): string {
+export function buildSystemPrompt(biz: BusinessConfig, offHoursNote?: string): string {
   const activeProducts = biz.getActiveProducts();
   const discontinuedProducts = biz.products.filter(
     (p) => p.status === "discontinue"
@@ -659,7 +659,7 @@ ${intentPolicyList}
 5. **ห้ามแต่งข้อมูลสินค้า** ที่ไม่มีในระบบ
 6. **ห้ามส่ง payment link** ทาง chat
 7. ราคาแสดงเป็นบาทเสมอ รูปแบบ: 12,650 บาท
-8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ`;
+8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ${offHoursNote ? `\n\n## สถานะเวลาทำการ:\n${offHoursNote}` : ""}`;
 }
 
 // ─────────────────────────────────────────────────────────────

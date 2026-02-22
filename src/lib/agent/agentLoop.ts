@@ -40,7 +40,7 @@ const MAX_ITERATIONS = 5; // safety cap — prevents infinite tool loops
 
 // ── Build agent system prompt ──
 
-function buildAgentSystemPrompt(biz: BusinessConfig): string {
+function buildAgentSystemPrompt(biz: BusinessConfig, offHoursNote?: string): string {
   const activeProducts = biz.getActiveProducts();
   const productSummary = activeProducts
     .slice(0, 20)
@@ -77,6 +77,7 @@ ${productSummary}
 3. ราคาแสดงเป็นบาท รูปแบบ: 12,650 บาท
 4. ถ้าไม่แน่ใจ ให้แนะนำติดต่อผ่านช่องทาง: ${biz.orderChannelsText.split("\n")[0]}
 5. จบทุกคำตอบด้วยคำถามกลับหา/ข้อเสนอช่วยเหลือ
+${offHoursNote ? `\n## สถานะเวลาทำการ:\n${offHoursNote}` : ""}
 `;
 }
 
@@ -86,13 +87,14 @@ export async function runAgentLoop(
   userMessage: string,
   conversationHistory: ChatMessage[],
   biz: BusinessConfig,
-  conversationId?: string
+  conversationId?: string,
+  offHoursNote?: string
 ): Promise<AgentResult> {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
 
-  const systemPrompt = buildAgentSystemPrompt(biz);
+  const systemPrompt = buildAgentSystemPrompt(biz, offHoursNote);
 
   // Build message history for OpenAI (last 10 messages for context window)
   const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = conversationHistory

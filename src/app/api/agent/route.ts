@@ -37,8 +37,23 @@ export async function POST(req: NextRequest) {
     const businessId = reqBusinessId || DEFAULT_BUSINESS_ID;
     const biz = getBusinessConfig(businessId);
 
+    // Fetch business hours context
+    let offHoursNote: string | undefined;
+    try {
+      const { getBusinessHours, checkBusinessHours } = await import("@/app/api/business-hours/route");
+      const bhConfig = await getBusinessHours(businessId);
+      if (bhConfig.enabled) {
+        const status = checkBusinessHours(bhConfig);
+        if (!status.isOpen) {
+          offHoursNote = bhConfig.offHoursMessage;
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+
     // Run the agent loop
-    const agentResult = await runAgentLoop(userMessage, messages, biz, conversationId);
+    const agentResult = await runAgentLoop(userMessage, messages, biz, conversationId, offHoursNote);
 
     // If agent flagged for admin — persist to Redis for the monitor
     if (agentResult.flaggedForAdmin && conversationId) {
