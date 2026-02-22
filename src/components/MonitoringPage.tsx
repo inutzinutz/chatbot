@@ -151,6 +151,11 @@ const PRIORITY_CONFIG = {
   low: { label: "ต่ำ", color: "text-gray-600", bg: "bg-gray-50 border-gray-200" },
 };
 
+// ── Business Hours types (used by Settings tab) ──
+interface BHSchedule { day: string; open: string; close: string; active: boolean; }
+interface BHConfig { enabled: boolean; timezone: string; offHoursMessage: string; schedule: BHSchedule[]; }
+interface BHStatus { isOpen: boolean; dayName: string; currentTime: string; openTime: string; closeTime: string; }
+
 // ══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════
@@ -190,10 +195,8 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
   const [tokenDays, setTokenDays] = useState<30 | 7 | 1>(30);
 
   // Settings tab — Business Hours state
-  interface BHSchedule { day: string; open: string; close: string; active: boolean; }
-  interface BHConfig { enabled: boolean; timezone: string; offHoursMessage: string; schedule: BHSchedule[]; }
   const [bhConfig, setBhConfig] = useState<BHConfig | null>(null);
-  const [bhStatus, setBhStatus] = useState<{ isOpen: boolean; dayName: string; currentTime: string; openTime: string; closeTime: string } | null>(null);
+  const [bhStatus, setBhStatus] = useState<BHStatus | null>(null);
   const [bhLoading, setBhLoading] = useState(false);
   const [bhSaving, setBhSaving] = useState(false);
   const [bhSaved, setBhSaved] = useState(false);
@@ -211,7 +214,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
     try {
       const r = await fetch(`/api/business-hours?businessId=${businessId}`);
       if (r.ok) {
-        const data = await r.json() as { config: BHConfig; status: typeof bhStatus };
+        const data = await r.json() as { config: BHConfig; status: BHStatus };
         setBhConfig(data.config);
         setBhStatus(data.status);
       }
@@ -1298,7 +1301,7 @@ export default function MonitoringPage({ businessId }: MonitoringPageProps) {
                     body: JSON.stringify({ businessId, config: bhConfig }),
                   });
                   if (res.ok) {
-                    const data = await res.json() as { config: BHConfig; status: typeof bhStatus };
+                    const data = await res.json() as { config: BHConfig; status: BHStatus };
                     setBhConfig(data.config);
                     setBhStatus(data.status);
                     setBhSaved(true);
