@@ -4,10 +4,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ChatMessage from "./ChatMessage";
 import ChatInput, { type AttachedFile } from "./ChatInput";
 import QuickReplies from "./QuickReplies";
-import { Bot, RotateCcw, FileText } from "lucide-react";
+import { Bot, RotateCcw, FileText, ShieldCheck } from "lucide-react";
 import type { PipelineTrace } from "@/lib/inspector";
 import { trackChatEvent } from "@/lib/chatEvents";
 import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+
+const PDPA_STORAGE_KEY = "evlife_pdpa_consent_v1";
 
 interface Message {
   id: string;
@@ -56,6 +58,26 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
   const [isLoading, setIsLoading] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // ── PDPA consent state ──
+  const [pdpaConsented, setPdpaConsented] = useState<boolean>(false);
+  useEffect(() => {
+    // Check localStorage on mount (client-side only)
+    try {
+      const stored = localStorage.getItem(PDPA_STORAGE_KEY);
+      setPdpaConsented(stored === "1");
+    } catch {
+      setPdpaConsented(false);
+    }
+  }, []);
+
+  const acceptPdpa = () => {
+    try {
+      localStorage.setItem(PDPA_STORAGE_KEY, "1");
+    } catch { /* ignore storage errors */ }
+    setPdpaConsented(true);
+    trackChatEvent({ type: "session_start" });
+  };
 
   // Reset messages when businessId changes
   useEffect(() => {
@@ -161,7 +183,10 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(pdpaConsented ? { "x-pdpa-consent": "1" } : {}),
+        },
         body: JSON.stringify({
           messages: [...messages, userMessage]
             .filter((m) => m.id !== "welcome")
@@ -297,7 +322,31 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
   };
 
   return (
-    <div className="flex h-full flex-col bg-gray-50">
+    <div className="relative flex h-full flex-col bg-gray-50">
+      {/* PDPA Consent Banner */}
+      {!pdpaConsented && (
+        <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-sm">
+          <div className="w-full rounded-t-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-3 flex items-center gap-2 text-green-700">
+              <ShieldCheck className="h-5 w-5" />
+              <span className="font-semibold text-sm">นโยบายความเป็นส่วนตัว (PDPA)</span>
+            </div>
+            <p className="mb-4 text-xs leading-relaxed text-gray-600">
+              เราเก็บรวบรวมข้อมูลการสนทนาเพื่อปรับปรุงบริการและตอบคำถามของคุณ
+              ข้อมูลจะถูกเก็บรักษาอย่างปลอดภัยและไม่เปิดเผยแก่บุคคลภายนอก
+              การกดปุ่ม &ldquo;ยอมรับ&rdquo; ถือว่าคุณยินยอมให้เราจัดเก็บข้อมูลการสนทนา
+              ตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล (PDPA) พ.ศ. 2562
+            </p>
+            <button
+              onClick={acceptPdpa}
+              className="w-full rounded-xl bg-green-600 py-2.5 text-sm font-semibold text-white hover:bg-green-700 active:bg-green-800 transition-colors"
+            >
+              ยอมรับและเริ่มใช้งาน
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 bg-white px-4 py-3">
         <div className="flex items-center gap-3">
@@ -385,7 +434,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
       )}
 
       {/* Input */}
-      <ChatInput onSend={handleSend} disabled={isLoading} maxLength={500} />
+      <ChatInput onSend={handleSend} disabled={isLoading || !pdpaConsented} maxLength={500} />
     </div>
   );
 }

@@ -14,10 +14,76 @@ function now() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Rate Limiting — sliding window, per IP, in-memory (edge)
+// 30 requests per 60 seconds per IP address
+// ─────────────────────────────────────────────────────────────
+
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+// Map<ip, timestamps[]>
+const rateLimitStore = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+  // Get existing timestamps, drop those outside the window
+  const timestamps = (rateLimitStore.get(ip) ?? []).filter((t) => t > windowStart);
+  timestamps.push(now);
+  rateLimitStore.set(ip, timestamps);
+
+  // Evict entries older than 5 minutes to prevent memory leak
+  if (rateLimitStore.size > 10_000) {
+    const cutoff = now - 5 * 60_000;
+    for (const [key, ts] of rateLimitStore.entries()) {
+      if (ts[ts.length - 1] < cutoff) rateLimitStore.delete(key);
+    }
+  }
+
+  return timestamps.length > RATE_LIMIT_MAX;
+}
+
+// ─────────────────────────────────────────────────────────────
 // POST handler — PIPELINE FIRST, GPT only on default fallback
 // ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // ── Rate limit check ──
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { content: "ขออภัยครับ คุณส่งข้อความถี่เกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้งครับ" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": "60",
+          "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+          "X-RateLimit-Window": "60s",
+        },
+      }
+    );
+  }
+
+  // ── PDPA consent check ──
+  // Client must send "x-pdpa-consent: 1" header after user accepts the privacy notice.
+  // Skip check for server-to-server calls (LINE webhook uses x-line-signature instead).
+  const isLineWebhook = req.headers.has("x-line-signature");
+  const pdpaConsent = req.headers.get("x-pdpa-consent");
+  if (!isLineWebhook && pdpaConsent !== "1") {
+    return NextResponse.json(
+      {
+        content: "กรุณายอมรับนโยบายความเป็นส่วนตัวก่อนเริ่มใช้งานครับ",
+        requireConsent: true,
+      },
+      { status: 451 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { messages, businessId: reqBusinessId } = body as {

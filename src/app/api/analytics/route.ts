@@ -37,6 +37,14 @@ export interface RealAnalyticsData {
   newConversationsToday: number;
   pinnedCount: number;
   botDisabledCount: number;
+  /** Average first response time in seconds (bot or admin, whichever replied first) */
+  avgFirstResponseSec: number;
+  /** Number of conversations handled by bot only (no admin messages) */
+  botHandledCount: number;
+  /** Number of conversations where at least one admin message was sent */
+  adminHandledCount: number;
+  /** Sentiment breakdown from ChatSummary data */
+  sentimentDist: { sentiment: string; count: number }[];
   hourlyContacts: { hour: string; count: number }[];
   platforms: { platform: string; count: number }[];
   pipelineLayerDist: { layer: string; count: number }[];
@@ -101,7 +109,7 @@ export async function GET(req: NextRequest) {
       platformCounts[platform] = (platformCounts[platform] || 0) + 1;
     }
 
-    // ── 3. Sample message counts + intent/layer data (up to 200 convs) ──
+    // ── 3. Sample message counts + intent/layer/response-time/bot-vs-admin data ──
     const SAMPLE_LIMIT = 200;
     const sampleConvs = convs.slice(0, SAMPLE_LIMIT);
 
@@ -113,6 +121,15 @@ export async function GET(req: NextRequest) {
     let maxMessagesPerConv = 0;
     const layerCounts: Record<string, number> = {};
     const intentCounts: Record<string, number> = {};
+
+    // Response time + bot-vs-admin tracking
+    let firstResponseSumSec = 0;
+    let firstResponseCount = 0;
+    let botHandledCount = 0;
+    let adminHandledCount = 0;
+
+    // Sentiment from ChatSummary (sample up to 100 most recent)
+    const sentimentCounts: Record<string, number> = { positive: 0, neutral: 0, negative: 0 };
 
     if (redis) {
       // Batch LLEN
@@ -133,35 +150,92 @@ export async function GET(req: NextRequest) {
         totalMessages = Math.round(totalMessages * (totalConversations / SAMPLE_LIMIT));
       }
 
-      // Sample pipeline layer + intent distribution (up to 50 convs, last 30 msgs)
+      // Sample first 30 messages per conv for layer/intent/response-time/bot-vs-admin
+      // Use LRANGE 0..29 (first messages) to get response time context
       const LAYER_SAMPLE = Math.min(50, sampleConvs.length);
       const msgPipeline = redis.pipeline();
       for (let i = 0; i < LAYER_SAMPLE; i++) {
-        msgPipeline.lrange(`msgs:${businessId}:${sampleConvs[i].userId}`, -30, -1);
+        msgPipeline.lrange(`msgs:${businessId}:${sampleConvs[i].userId}`, 0, 29);
       }
       const msgResults = await msgPipeline.exec();
       if (msgResults) {
         for (const [err, rawList] of msgResults) {
           if (err || !Array.isArray(rawList)) continue;
+          const msgs: ChatMessage[] = [];
           for (const raw of rawList) {
             try {
-              const msg = JSON.parse(raw as string) as ChatMessage;
-              if (msg.pipelineLayerName) {
-                layerCounts[msg.pipelineLayerName] = (layerCounts[msg.pipelineLayerName] || 0) + 1;
-              }
-              // Intent from layerName pattern "Intent: <name>" or finalIntent field
-              if (msg.pipelineLayerName?.startsWith("Intent:")) {
-                const intentName = msg.pipelineLayerName.replace("Intent:", "").trim();
-                intentCounts[intentName] = (intentCounts[intentName] || 0) + 1;
-              }
+              msgs.push(JSON.parse(raw as string) as ChatMessage);
             } catch { /* skip */ }
           }
+
+          // Pipeline layer + intent from bot messages
+          for (const msg of msgs) {
+            if (msg.pipelineLayerName) {
+              layerCounts[msg.pipelineLayerName] = (layerCounts[msg.pipelineLayerName] || 0) + 1;
+            }
+            if (msg.pipelineLayerName?.startsWith("Intent:")) {
+              const intentName = msg.pipelineLayerName.replace("Intent:", "").trim();
+              intentCounts[intentName] = (intentCounts[intentName] || 0) + 1;
+            }
+          }
+
+          // First response time: time between first customer msg and first bot/admin reply
+          const firstCustomer = msgs.find((m) => m.role === "customer");
+          const firstReply = msgs.find(
+            (m) => m.role !== "customer" && m.timestamp > (firstCustomer?.timestamp ?? 0)
+          );
+          if (firstCustomer && firstReply) {
+            const diffSec = (firstReply.timestamp - firstCustomer.timestamp) / 1000;
+            if (diffSec >= 0 && diffSec < 3600) {
+              // ignore outliers > 1h (likely stale conversations)
+              firstResponseSumSec += diffSec;
+              firstResponseCount++;
+            }
+          }
+
+          // Bot vs admin: any admin role message → admin handled
+          const hasAdmin = msgs.some((m) => m.role === "admin");
+          if (hasAdmin) {
+            adminHandledCount++;
+          } else {
+            botHandledCount++;
+          }
+        }
+      }
+
+      // Scale bot/admin counts to full dataset
+      if (LAYER_SAMPLE > 0 && totalConversations > LAYER_SAMPLE) {
+        const scale = totalConversations / LAYER_SAMPLE;
+        botHandledCount = Math.round(botHandledCount * scale);
+        adminHandledCount = Math.round(adminHandledCount * scale);
+      }
+
+      // Sentiment: read ChatSummaries for last 100 conversations
+      const summaryPipeline = redis.pipeline();
+      const sumSample = convs.slice(0, 100);
+      for (const conv of sumSample) {
+        summaryPipeline.get(`chatsum:${businessId}:${conv.userId}`);
+      }
+      const summaryResults = await summaryPipeline.exec();
+      if (summaryResults) {
+        for (const [err, raw] of summaryResults) {
+          if (err || !raw || typeof raw !== "string") continue;
+          try {
+            const s = JSON.parse(raw) as { sentiment?: string };
+            if (s.sentiment === "positive" || s.sentiment === "neutral" || s.sentiment === "negative") {
+              sentimentCounts[s.sentiment]++;
+            }
+          } catch { /* skip */ }
         }
       }
     }
 
     const avgMessagesPerConv =
       totalConversations > 0 ? Math.round((totalMessages / totalConversations) * 10) / 10 : 0;
+    const avgFirstResponseSec =
+      firstResponseCount > 0
+        ? Math.round((firstResponseSumSec / firstResponseCount) * 10) / 10
+        : 0;
 
     // ── 4. Format output ──
     const hourlyContacts = HOUR_LABELS.map((label, i) => ({ hour: label, count: hourlyCounts[i] }));
@@ -180,6 +254,11 @@ export async function GET(req: NextRequest) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, count]) => ({ date: date.slice(5), count })); // "MM-DD"
 
+    const sentimentDist = Object.entries(sentimentCounts)
+      .map(([sentiment, count]) => ({ sentiment, count }))
+      .filter((s) => s.count > 0)
+      .sort((a, b) => b.count - a.count);
+
     const result: RealAnalyticsData = {
       totalConversations,
       totalMessages,
@@ -190,6 +269,10 @@ export async function GET(req: NextRequest) {
       newConversationsToday,
       pinnedCount,
       botDisabledCount,
+      avgFirstResponseSec,
+      botHandledCount,
+      adminHandledCount,
+      sentimentDist,
       hourlyContacts,
       platforms,
       pipelineLayerDist,

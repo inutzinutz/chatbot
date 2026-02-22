@@ -7,6 +7,7 @@
 /* ------------------------------------------------------------------ */
 
 import Redis from "ioredis";
+import { randomUUID } from "crypto";
 
 // ── Types ──
 
@@ -282,18 +283,19 @@ class ChatStore {
   ): Promise<ChatMessage> {
     const fullMsg: ChatMessage = {
       ...msg,
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: randomUUID(),
     };
 
-    // Append to message list
+    // Atomically append + trim to last 500 messages via Lua script
+    // This eliminates the rpush → llen → ltrim race condition where
+    // concurrent writers could each read the same llen and skip the trim.
     const mk = msgsKey(businessId, userId);
-    await redis.rpush(mk, JSON.stringify(fullMsg));
-
-    // Trim to last 500 messages
-    const len = await redis.llen(mk);
-    if (len > 500) {
-      await redis.ltrim(mk, len - 500, -1);
-    }
+    const LUA_RPUSH_TRIM = `
+      redis.call('RPUSH', KEYS[1], ARGV[1])
+      redis.call('LTRIM', KEYS[1], -tonumber(ARGV[2]), -1)
+      return redis.call('LLEN', KEYS[1])
+    `;
+    await (redis as Redis).eval(LUA_RPUSH_TRIM, 1, mk, JSON.stringify(fullMsg), "500");
 
     // Update conversation metadata
     const ck = convKey(businessId, userId);
@@ -666,7 +668,7 @@ class ChatStore {
   // Entry key:  adminlogentry:{businessId}:{entryId}    value=JSON
 
   async logAdminActivity(entry: Omit<AdminActivityEntry, "id">): Promise<void> {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const id = randomUUID();
     const full: AdminActivityEntry = { ...entry, id };
     const entryKey = `adminlogentry:${entry.businessId}:${id}`;
     await setJSON(entryKey, full);
