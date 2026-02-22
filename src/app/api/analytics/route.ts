@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
-import type { ChatConversation, ChatMessage } from "@/lib/chatStore";
+import type { ChatConversation, ChatMessage, ChatSummary } from "@/lib/chatStore";
 
 // Thai timezone offset: UTC+7
 const TH_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -56,9 +56,263 @@ export interface RealAnalyticsData {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const businessId = searchParams.get("businessId");
+  const view = searchParams.get("view") || "overview";
 
   if (!businessId) {
     return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
+  }
+
+  // ── Redis helper ──
+  const Redis = (await import("ioredis")).default;
+  const g = globalThis as unknown as { __redis?: InstanceType<typeof Redis> };
+  const redis = g.__redis;
+
+  // ════════════════════════════════════════════════
+  // VIEW: topics — Conversation topic analysis
+  // ════════════════════════════════════════════════
+  if (view === "topics") {
+    const summaries = await chatStore.getAllChatSummaries(businessId, 300);
+    const topicCounts: Record<string, number> = {};
+    const keywordCounts: Record<string, number> = {};
+    const customerTopics: Record<string, { userId: string; displayName: string; topic: string; count: number }> = {};
+    const topicByDay: Record<string, Record<string, number>> = {};
+
+    for (const s of summaries) {
+      // Count topics
+      const topic = s.topic || "ไม่ระบุ";
+      topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+
+      // Extract keywords from keyPoints
+      for (const kp of s.keyPoints || []) {
+        const words = kp.split(/[\s,\/]+/).filter((w) => w.length > 3);
+        for (const w of words) {
+          keywordCounts[w] = (keywordCounts[w] || 0) + 1;
+        }
+      }
+
+      // Customer → most-discussed topic
+      if (s.userId) {
+        if (!customerTopics[s.userId]) {
+          customerTopics[s.userId] = { userId: s.userId, displayName: s.displayName, topic, count: 0 };
+        }
+        customerTopics[s.userId].count++;
+      }
+
+      // Topic by day
+      const day = s.conversationDate || "unknown";
+      if (!topicByDay[day]) topicByDay[day] = {};
+      topicByDay[day][topic] = (topicByDay[day][topic] || 0) + 1;
+    }
+
+    const topTopics = Object.entries(topicCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 15)
+      .map(([topic, count]) => ({ topic, count }));
+
+    const topKeywords = Object.entries(keywordCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 20)
+      .map(([word, count]) => ({ word, count }));
+
+    const topCustomers = Object.values(customerTopics)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+
+    // Daily topic trend (last 14 days)
+    const now = Date.now();
+    const days14: string[] = [];
+    for (let i = 13; i >= 0; i--) {
+      days14.push(thaiDayKey(now - i * 24 * 60 * 60 * 1000));
+    }
+    const topicTrend = days14.map((date) => ({
+      date: date.slice(5),
+      topics: topicByDay[date] || {},
+      total: Object.values(topicByDay[date] || {}).reduce((a, b) => a + b, 0),
+    }));
+
+    return NextResponse.json({ topTopics, topKeywords, topCustomers, topicTrend, total: summaries.length });
+  }
+
+  // ════════════════════════════════════════════════
+  // VIEW: sentiment — Customer sentiment tracking
+  // ════════════════════════════════════════════════
+  if (view === "sentiment") {
+    const days = parseInt(searchParams.get("days") || "30");
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const summaries = await chatStore.getAllChatSummaries(businessId, 500);
+
+    const sentCounts = { positive: 0, neutral: 0, negative: 0 };
+    const sentByDay: Record<string, { positive: number; neutral: number; negative: number }> = {};
+    const negativeCustomers: { userId: string; displayName: string; topic: string; pendingAction?: string; date: string }[] = [];
+    const positiveCustomers: { userId: string; displayName: string; topic: string; date: string }[] = [];
+
+    for (const s of summaries) {
+      const ts = new Date(s.conversationDate + "T00:00:00+07:00").getTime();
+      if (ts < since) continue;
+
+      const sent = (s.sentiment as "positive" | "neutral" | "negative") || "neutral";
+      sentCounts[sent]++;
+
+      const day = s.conversationDate;
+      if (!sentByDay[day]) sentByDay[day] = { positive: 0, neutral: 0, negative: 0 };
+      sentByDay[day][sent]++;
+
+      if (sent === "negative") {
+        negativeCustomers.push({ userId: s.userId, displayName: s.displayName, topic: s.topic, pendingAction: s.pendingAction, date: s.conversationDate });
+      }
+      if (sent === "positive") {
+        positiveCustomers.push({ userId: s.userId, displayName: s.displayName, topic: s.topic, date: s.conversationDate });
+      }
+    }
+
+    // Build daily trend
+    const now2 = Date.now();
+    const trendDays: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      trendDays.push(thaiDayKey(now2 - i * 24 * 60 * 60 * 1000));
+    }
+    const sentimentTrend = trendDays.map((date) => ({
+      date: date.slice(5),
+      ...( sentByDay[date] || { positive: 0, neutral: 0, negative: 0 }),
+    }));
+
+    // Sentiment score: (positive - negative) / total * 100
+    const total = sentCounts.positive + sentCounts.neutral + sentCounts.negative;
+    const score = total > 0 ? Math.round(((sentCounts.positive - sentCounts.negative) / total) * 100) : 0;
+
+    return NextResponse.json({
+      sentCounts,
+      total,
+      score,
+      sentimentTrend,
+      negativeCustomers: negativeCustomers.slice(0, 30),
+      positiveCustomers: positiveCustomers.slice(0, 20),
+      days,
+    });
+  }
+
+  // ════════════════════════════════════════════════
+  // VIEW: team — Team performance metrics
+  // ════════════════════════════════════════════════
+  if (view === "team") {
+    const days = parseInt(searchParams.get("days") || "30");
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    // Get admin activity log
+    const adminLog = await chatStore.getAdminActivityLog(businessId, { limit: 5000 });
+    const convs2: ChatConversation[] = await chatStore.getConversations(businessId);
+
+    // Per-admin stats
+    interface AdminPerf {
+      username: string;
+      messagesSent: number;
+      followupsSent: number;
+      botToggles: number;
+      pins: number;
+      conversationsHandled: Set<string>;
+      responseTimes: number[]; // ms between customer msg and admin reply
+      lastActive: number;
+      dailyActivity: Record<string, number>;
+    }
+    const adminMap: Record<string, AdminPerf> = {};
+
+    for (const entry of adminLog) {
+      if (entry.timestamp < since) continue;
+      if (!adminMap[entry.username]) {
+        adminMap[entry.username] = {
+          username: entry.username,
+          messagesSent: 0,
+          followupsSent: 0,
+          botToggles: 0,
+          pins: 0,
+          conversationsHandled: new Set(),
+          responseTimes: [],
+          lastActive: 0,
+          dailyActivity: {},
+        };
+      }
+      const a = adminMap[entry.username];
+      if (entry.action === "send") { a.messagesSent++; a.conversationsHandled.add(entry.userId); }
+      if (entry.action === "sendFollowup") { a.followupsSent++; a.conversationsHandled.add(entry.userId); }
+      if (entry.action === "toggleBot" || entry.action === "globalToggleBot") a.botToggles++;
+      if (entry.action === "pin") a.pins++;
+      if (entry.timestamp > a.lastActive) a.lastActive = entry.timestamp;
+      const day = thaiDayKey(entry.timestamp);
+      a.dailyActivity[day] = (a.dailyActivity[day] || 0) + 1;
+    }
+
+    // Calculate response times: for each admin-handled conv, compare customer msg ts vs admin reply ts
+    if (redis) {
+      const handledConvIds = [...new Set(adminLog.filter(e => e.timestamp >= since && e.action === "send").map(e => e.userId))].slice(0, 80);
+      const msgPipeline = redis.pipeline();
+      for (const uid of handledConvIds) {
+        msgPipeline.lrange(`msgs:${businessId}:${uid}`, 0, 49);
+      }
+      const msgResults = await msgPipeline.exec();
+      if (msgResults) {
+        for (let i = 0; i < msgResults.length; i++) {
+          const [err, rawList] = msgResults[i];
+          if (err || !Array.isArray(rawList)) continue;
+          const msgs: ChatMessage[] = rawList.map((r: unknown) => { try { return JSON.parse(r as string) as ChatMessage; } catch { return null; } }).filter(Boolean) as ChatMessage[];
+          // Find admin messages and match with preceding customer messages
+          for (let j = 1; j < msgs.length; j++) {
+            const m = msgs[j];
+            if (m.role !== "admin") continue;
+            const prev = msgs.slice(0, j).reverse().find(p => p.role === "customer");
+            if (!prev) continue;
+            const diffMs = m.timestamp - prev.timestamp;
+            if (diffMs > 0 && diffMs < 24 * 3600 * 1000) {
+              // Associate with admin who sent it (from adminLog)
+              const matchEntry = adminLog.find(e => e.userId === handledConvIds[i] && Math.abs(e.timestamp - m.timestamp) < 30000 && e.action === "send");
+              if (matchEntry && adminMap[matchEntry.username]) {
+                adminMap[matchEntry.username].responseTimes.push(diffMs);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Bot-only vs admin-handled conv counts
+    let botOnly = 0, adminHandled = 0;
+    for (const conv of convs2) {
+      const hasAdminEntry = adminLog.some(e => e.userId === conv.userId && e.timestamp >= since);
+      if (hasAdminEntry) adminHandled++; else botOnly++;
+    }
+
+    // Format team output
+    const team = Object.values(adminMap).map((a) => {
+      const avgResponseMs = a.responseTimes.length > 0
+        ? a.responseTimes.reduce((s, v) => s + v, 0) / a.responseTimes.length
+        : null;
+      // Build last 14 days activity array
+      const now3 = Date.now();
+      const activityDays = Array.from({ length: 14 }, (_, i) => {
+        const d = thaiDayKey(now3 - (13 - i) * 24 * 60 * 60 * 1000);
+        return { date: d.slice(5), count: a.dailyActivity[d] || 0 };
+      });
+      return {
+        username: a.username,
+        messagesSent: a.messagesSent,
+        followupsSent: a.followupsSent,
+        botToggles: a.botToggles,
+        pins: a.pins,
+        conversationsHandled: a.conversationsHandled.size,
+        avgResponseMinutes: avgResponseMs !== null ? Math.round(avgResponseMs / 60000 * 10) / 10 : null,
+        lastActive: a.lastActive,
+        activityDays,
+      };
+    }).sort((a, b) => b.messagesSent - a.messagesSent);
+
+    // Daily team total messages
+    const now4 = Date.now();
+    const teamDailyTrend = Array.from({ length: 14 }, (_, i) => {
+      const d = thaiDayKey(now4 - (13 - i) * 24 * 60 * 60 * 1000);
+      const total = Object.values(adminMap).reduce((s, a) => s + (a.dailyActivity[d] || 0), 0);
+      return { date: d.slice(5), total };
+    });
+
+    return NextResponse.json({ team, botOnly, adminHandled, teamDailyTrend, days });
   }
 
   try {
@@ -112,10 +366,6 @@ export async function GET(req: NextRequest) {
     // ── 3. Sample message counts + intent/layer/response-time/bot-vs-admin data ──
     const SAMPLE_LIMIT = 200;
     const sampleConvs = convs.slice(0, SAMPLE_LIMIT);
-
-    const Redis = (await import("ioredis")).default;
-    const g = globalThis as unknown as { __redis?: InstanceType<typeof Redis> };
-    const redis = g.__redis;
 
     let totalMessages = 0;
     let maxMessagesPerConv = 0;
