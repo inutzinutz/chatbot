@@ -141,6 +141,43 @@ export interface DailyDigest {
 }
 
 /**
+ * CRM Profile — structured customer data extracted from chat + admin edits.
+ * Key: crm:{businessId}:{userId}  → JSON object
+ *
+ * Fields are all optional — filled incrementally by AI extraction or admin.
+ */
+export interface CRMProfile {
+  userId: string;
+  businessId: string;
+
+  // Core contact info
+  name?: string;           // real name (ไม่ใช่ LINE displayName)
+  phone?: string;          // เบอร์โทรศัพท์
+  email?: string;
+  lineDisplayName?: string; // LINE displayName at time of last extract
+
+  // Purchase interest / intent
+  interestedProducts?: string[];  // สินค้าที่สนใจ
+  budget?: string;                // งบประมาณ
+  purchaseIntent?: "hot" | "warm" | "cold" | "purchased";  // ระดับความสนใจ
+
+  // Location / context
+  province?: string;       // จังหวัด
+  occupation?: string;     // อาชีพ
+
+  // Lifecycle
+  tags?: string[];         // admin-defined tags เช่น "VIP", "ลูกค้าเก่า"
+  stage?: "lead" | "prospect" | "customer" | "churned";
+
+  // Metadata
+  extractedAt?: number;    // last AI extract timestamp
+  extractedBy?: "ai" | "admin";
+  updatedAt?: number;      // last manual edit timestamp
+  updatedBy?: string;      // admin username who last edited
+  createdAt: number;
+}
+
+/**
  * CRM Note — private admin note for a customer conversation.
  * Key: crmnotes:{businessId}:{userId}  → JSON array
  */
@@ -847,6 +884,45 @@ class ChatStore {
       templates[idx] = { ...templates[idx], ...updates };
       await redis.set(`templates:${businessId}`, JSON.stringify(templates));
     }
+  }
+
+  // ── CRM Profile ──
+
+  async getCRMProfile(businessId: string, userId: string): Promise<CRMProfile | null> {
+    return getJSON<CRMProfile>(`crm:${businessId}:${userId}`);
+  }
+
+  async saveCRMProfile(profile: CRMProfile): Promise<void> {
+    await setJSON(`crm:${profile.businessId}:${profile.userId}`, profile);
+    // Also add to the business index set (score = updatedAt for sorting)
+    await redis.zadd(`crmindex:${profile.businessId}`, profile.updatedAt ?? profile.createdAt, profile.userId);
+  }
+
+  async getAllCRMProfiles(businessId: string, limit = 200): Promise<CRMProfile[]> {
+    // Pull most-recently-updated first
+    const userIds = await redis.zrange(`crmindex:${businessId}`, 0, limit - 1, "REV");
+    if (!userIds.length) return [];
+
+    const pipeline = redis.pipeline();
+    for (const uid of userIds) {
+      pipeline.get(`crm:${businessId}:${uid}`);
+    }
+    const results = await pipeline.exec();
+    if (!results) return [];
+
+    const profiles: CRMProfile[] = [];
+    for (const [err, raw] of results) {
+      if (err || !raw) continue;
+      try {
+        profiles.push(JSON.parse(raw as string) as CRMProfile);
+      } catch { /* skip */ }
+    }
+    return profiles;
+  }
+
+  async deleteCRMProfile(businessId: string, userId: string): Promise<void> {
+    await redis.del(`crm:${businessId}:${userId}`);
+    await redis.zrem(`crmindex:${businessId}`, userId);
   }
 }
 

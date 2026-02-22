@@ -12,6 +12,7 @@ import {
   buildPdfUserPrompt,
 } from "@/lib/visionPrompt";
 import { logTokenUsage } from "@/lib/tokenTracker";
+import { autoExtractCRM } from "@/lib/crmExtract";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -1019,6 +1020,9 @@ export async function POST(req: NextRequest) {
         pipelineLayer: pipelineTrace.finalLayer,
         pipelineLayerName: pipelineTrace.finalLayerName,
       });
+
+      // ── CRM auto-extract (fire-and-forget) ──
+      autoExtractCRM(businessId, lineUserId).catch(() => {});
 
       // ── Send reply via LINE ──
       const replyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
