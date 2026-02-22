@@ -278,13 +278,161 @@ interface LineEvent {
   type: string;
   replyToken?: string;
   message?: {
-    type: string;
+    type: string;         // "text" | "image" | "video" | "audio" | "file" | "sticker" | "location"
+    id?: string;          // message ID (for content fetch)
     text?: string;
+    fileName?: string;    // for file messages
+    fileSize?: number;    // for file messages (bytes)
+    duration?: number;    // for video/audio (ms)
   };
   source?: {
     type: string;
     userId?: string;
   };
+}
+
+// ── Fetch LINE message content as base64 ──
+
+async function fetchLineContent(
+  messageId: string,
+  accessToken: string
+): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get("content-type") || "application/octet-stream";
+    // Strip parameters like "; boundary=..."
+    const mimeType = contentType.split(";")[0].trim();
+
+    const arrayBuf = await res.arrayBuffer();
+    const base64 = Buffer.from(arrayBuf).toString("base64");
+    return { base64, mimeType };
+  } catch (err) {
+    console.error("[LINE webhook] fetchLineContent error:", err);
+    return null;
+  }
+}
+
+// ── Analyze image/file via Vision API (internal call) ──
+
+async function analyzeViaVision(
+  base64: string,
+  mimeType: string,
+  fileName: string,
+  businessId: string,
+  userPrompt?: string
+): Promise<string> {
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  if (!openaiKey && !anthropicKey) {
+    return "ขออภัยครับ ระบบยังไม่ได้ตั้งค่า AI Key สำหรับวิเคราะห์รูปภาพ";
+  }
+
+  const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  const isImage = SUPPORTED_IMAGE_TYPES.includes(mimeType);
+  const isPDF = mimeType === "application/pdf";
+
+  if (isImage) {
+    const prompt = userPrompt
+      ? `ผู้ใช้ถามว่า: "${userPrompt}"\n\nกรุณาวิเคราะห์รูปภาพและตอบคำถาม`
+      : "กรุณาวิเคราะห์รูปภาพนี้ บอกว่าเห็นอะไร และมีข้อมูลที่เกี่ยวข้องกับการให้บริการหรือสินค้าของเราอย่างไร ตอบเป็นภาษาไทยสั้นๆ กระชับ";
+
+    if (openaiKey) {
+      try {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            max_tokens: 600,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" } },
+                  { type: "text", text: prompt },
+                ],
+              },
+            ],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          return data.choices?.[0]?.message?.content || "ไม่สามารถวิเคราะห์รูปได้";
+        }
+      } catch { /* fallthrough */ }
+    }
+
+    if (anthropicKey) {
+      try {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-opus-4-5",
+            max_tokens: 600,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } },
+                { type: "text", text: prompt },
+              ],
+            }],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json() as { content: { type: string; text: string }[] };
+          return data.content?.find((c) => c.type === "text")?.text || "ไม่สามารถวิเคราะห์รูปได้";
+        }
+      } catch { /* fallthrough */ }
+    }
+
+    return "ขออภัยครับ ไม่สามารถวิเคราะห์รูปภาพได้ในขณะนี้";
+  }
+
+  if (isPDF) {
+    // For LINE webhook, we call our own /api/vision endpoint is not available (no internal URL)
+    // Instead, use pdf-parse directly
+    try {
+      const pdfParseModule = await import("pdf-parse");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfParse: (buf: Buffer) => Promise<{ text: string }> =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (pdfParseModule as any).default ?? (pdfParseModule as any);
+      const buffer = Buffer.from(base64, "base64");
+      const pdfData = await pdfParse(buffer);
+      const text = pdfData.text?.trim().slice(0, 3000) || "";
+
+      if (!text) return `ไฟล์ PDF "${fileName}" ไม่มีข้อความที่อ่านได้ครับ (อาจเป็น PDF รูปภาพ) กรุณาส่งเป็นรูปภาพแทนครับ`;
+
+      const prompt = `ช่วยสรุปเนื้อหาสำคัญจากไฟล์ PDF "${fileName}" ให้กระชับ ตอบเป็นภาษาไทย:\n\n${text}`;
+
+      if (openaiKey) {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            max_tokens: 600,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json() as { choices: { message: { content: string } }[] };
+          return data.choices?.[0]?.message?.content || "ไม่สามารถสรุป PDF ได้";
+        }
+      }
+    } catch (err) {
+      console.error("[LINE webhook] PDF parse error:", err);
+      return "ขออภัยครับ ไม่สามารถอ่าน PDF ได้ในขณะนี้";
+    }
+  }
+
+  return `ขออภัยครับ ประเภทไฟล์ "${mimeType}" ยังไม่รองรับการวิเคราะห์อัตโนมัติ`;
 }
 
 // ── Main handler ──
@@ -388,15 +536,165 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Only handle text messages (skip stickers, images, etc.)
-    if (event.type !== "message" || event.message?.type !== "text") {
-      diag.skipped = true;
+    // Only handle message events
+    if (event.type !== "message") {
+      diag.skipped = "non-message event";
       results.push(diag);
       continue;
     }
 
-    const userText = event.message.text || "";
+    const msgType = event.message?.type || "";
     const replyToken = event.replyToken;
+
+    // ── Handle sticker / audio / location — polite acknowledgement ──
+    if (["sticker", "audio", "location"].includes(msgType)) {
+      if (replyToken) {
+        const stickerReplies: Record<string, string> = {
+          sticker: "ขอบคุณสติ๊กเกอร์น่ารักๆ ครับ! มีอะไรให้ผมช่วยไหมครับ?",
+          audio: "ขอบคุณครับ! ขณะนี้ผมยังไม่รองรับข้อความเสียง กรุณาพิมพ์ข้อความครับ",
+          location: "ขอบคุณที่แชร์ตำแหน่งครับ! มีอะไรให้ผมช่วยเรื่องพื้นที่ใกล้เคียงไหมครับ?",
+        };
+        await replyToLine(replyToken, stickerReplies[msgType] || "ขอบคุณครับ!", accessToken);
+      }
+      diag.skipped = `handled_${msgType}`;
+      results.push(diag);
+      continue;
+    }
+
+    // ── Handle video messages ──
+    if (msgType === "video") {
+      if (replyToken && biz.features.videoReplyEnabled) {
+        // Check vision toggle (Redis) before replying
+        const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
+        if (visionOn) {
+          await replyToLine(
+            replyToken,
+            "ขอบคุณที่ส่งวิดีโอมาครับ!\n\nขออภัยครับ ระบบยังไม่รองรับการวิเคราะห์วิดีโออัตโนมัติ\n\nกรุณาส่งเป็น **รูปภาพ** (screenshot จากวิดีโอ) แทนได้เลยครับ แล้ว AI จะวิเคราะห์ให้ทันที!",
+            accessToken
+          );
+        }
+      }
+      diag.skipped = "video_not_analyzed";
+      results.push(diag);
+      continue;
+    }
+
+    // ── Handle image / file messages via Vision AI ──
+    if (msgType === "image" || msgType === "file") {
+      const messageId = event.message?.id;
+      const lineUserId = event.source?.userId || "";
+      diag.userId = lineUserId;
+      diag.messageId = messageId;
+
+      if (!messageId || !replyToken) {
+        diag.skipped = "no_message_id_or_token";
+        results.push(diag);
+        continue;
+      }
+
+      // Check vision toggle (Redis overrides config default)
+      const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
+      diag.visionEnabled = visionOn;
+
+      if (!visionOn) {
+        await replyToLine(
+          replyToken,
+          "ขอบคุณที่ส่งไฟล์มาครับ! ขณะนี้ระบบวิเคราะห์รูปภาพปิดอยู่ชั่วคราว กรุณาพิมพ์คำถามเป็นข้อความครับ",
+          accessToken
+        );
+        diag.skipped = "vision_disabled";
+        results.push(diag);
+        continue;
+      }
+
+      // Check global bot + per-conversation bot enabled
+      const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
+      if (!globalBotEnabled) {
+        diag.skipped = "global_bot_disabled";
+        results.push(diag);
+        continue;
+      }
+
+      const conv = await chatStore.getOrCreateConversation(businessId, lineUserId, { source: "line" });
+      if (!conv.botEnabled) {
+        diag.skipped = "bot_disabled";
+        results.push(diag);
+        continue;
+      }
+
+      // Check business hours
+      const withinHours = lineSettings?.businessHours
+        ? isWithinBusinessHours(lineSettings.businessHours)
+        : true;
+      if (!withinHours && lineSettings?.offlineMessage) {
+        await replyToLine(replyToken, stripMarkdown(lineSettings.offlineMessage), accessToken);
+        diag.skipped = "outside_business_hours";
+        results.push(diag);
+        continue;
+      }
+
+      // Fetch content from LINE
+      const content = await fetchLineContent(messageId, accessToken);
+      if (!content) {
+        await replyToLine(replyToken, "ขออภัยครับ ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองส่งใหม่ครับ", accessToken);
+        diag.error = "content_fetch_failed";
+        results.push(diag);
+        continue;
+      }
+
+      const approxMB = Math.ceil(content.base64.length * 0.75 / (1024 * 1024));
+      const maxMB = biz.features.visionMaxMB;
+      if (approxMB > maxMB) {
+        await replyToLine(replyToken, `ขออภัยครับ ไฟล์ใหญ่เกิน ${maxMB}MB กรุณาลดขนาดไฟล์ก่อนส่งครับ`, accessToken);
+        diag.skipped = `file_too_large_${approxMB}MB`;
+        results.push(diag);
+        continue;
+      }
+
+      const fileName = event.message?.fileName || (msgType === "image" ? "image.jpg" : "file");
+      diag.mimeType = content.mimeType;
+      diag.fileName = fileName;
+
+      // Store customer message
+      await chatStore.addMessage(businessId, lineUserId, {
+        role: "customer",
+        content: `[ส่งไฟล์: ${fileName} (${content.mimeType})]`,
+        timestamp: Date.now(),
+      });
+
+      // Call vision analysis
+      let analysisResult: string;
+      try {
+        analysisResult = await analyzeViaVision(content.base64, content.mimeType, fileName, businessId);
+      } catch (err) {
+        analysisResult = "ขออภัยครับ เกิดข้อผิดพลาดในการวิเคราะห์ไฟล์ กรุณาลองใหม่ครับ";
+        diag.visionError = String(err);
+      }
+
+      const replyText = stripMarkdown(analysisResult);
+      await replyToLine(replyToken, replyText, accessToken);
+      await chatStore.addMessage(businessId, lineUserId, {
+        role: "bot",
+        content: replyText,
+        timestamp: Date.now(),
+        pipelineLayer: 0,
+        pipelineLayerName: "Vision AI",
+      });
+
+      diag.visionAnalyzed = true;
+      diag.replyPreview = replyText.slice(0, 80);
+      results.push(diag);
+      continue;
+    }
+
+    // ── Text messages only beyond this point ──
+    if (msgType !== "text") {
+      diag.skipped = `unhandled_type_${msgType}`;
+      results.push(diag);
+      continue;
+    }
+
+    const userText = event.message?.text || "";
     if (!userText || !replyToken) {
       diag.skipped = "no text or token";
       results.push(diag);

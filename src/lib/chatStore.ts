@@ -434,6 +434,25 @@ class ChatStore {
     return val !== "0"; // Default: enabled (null or "1")
   }
 
+  // ── Vision Feature Toggle ──
+  // Key: vision:{businessId} → "1" (on) | "0" (off)
+  // Default: on (follows businessConfig.features.visionEnabled as fallback)
+
+  /** Set vision (image/file analysis) on/off for a business at runtime */
+  async setVisionEnabled(businessId: string, enabled: boolean): Promise<void> {
+    await redis.set(`vision:${businessId}`, enabled ? "1" : "0");
+  }
+
+  /**
+   * Check if vision is enabled for a business.
+   * Returns Redis value if set; otherwise falls back to defaultEnabled (from businessConfig).
+   */
+  async isVisionEnabled(businessId: string, defaultEnabled = true): Promise<boolean> {
+    const val = await redis.get(`vision:${businessId}`);
+    if (val === null) return defaultEnabled; // not set → use config default
+    return val !== "0";
+  }
+
   // ── Follow-up Agent ──
   // Key: followup:{businessId}:{userId} → JSON<FollowUpResult>
   // Key: followups:{businessId}          → Sorted set (score = analyzedAt)

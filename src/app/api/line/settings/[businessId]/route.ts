@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
 import { getBusinessConfig } from "@/lib/businessUnits";
 
+// Simple auth check — same pattern as /api/auth
+function isAuthorized(req: NextRequest): boolean {
+  const auth = req.headers.get("x-admin-token") || req.nextUrl.searchParams.get("token") || "";
+  return auth === (process.env.ADMIN_SECRET || "evlifethailand-admin");
+}
+
 export const runtime = "nodejs";
 
 /* ------------------------------------------------------------------ */
@@ -49,9 +55,12 @@ export async function GET(_req: NextRequest, context: RouteContext) {
   }
 
   try {
+    const biz = getBusinessConfig(businessId);
     const saved = await chatStore.getLineSettings(businessId);
     const settings = saved ?? defaultSettings(businessId);
-    return NextResponse.json({ businessId, settings });
+    // Include vision status from Redis (falls back to config default)
+    const visionEnabled = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
+    return NextResponse.json({ businessId, settings, visionEnabled });
   } catch (err) {
     console.error("[line/settings] GET error:", err);
     return NextResponse.json({ error: "Failed to fetch settings" }, { status: 500 });
@@ -100,5 +109,41 @@ export async function PUT(req: NextRequest, context: RouteContext) {
   } catch (err) {
     console.error("[line/settings] PUT error:", err);
     return NextResponse.json({ error: "Failed to save settings" }, { status: 500 });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  PATCH /api/line/settings/[businessId]                             */
+/*  Toggle vision (image/file AI analysis) on or off at runtime.      */
+/*  Body: { visionEnabled: boolean }                                   */
+/* ------------------------------------------------------------------ */
+
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  const { businessId } = await context.params;
+  if (!businessId) {
+    return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
+  }
+
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { visionEnabled?: boolean };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (typeof body.visionEnabled !== "boolean") {
+    return NextResponse.json({ error: "visionEnabled (boolean) is required" }, { status: 400 });
+  }
+
+  try {
+    await chatStore.setVisionEnabled(businessId, body.visionEnabled);
+    return NextResponse.json({ ok: true, businessId, visionEnabled: body.visionEnabled });
+  } catch (err) {
+    console.error("[line/settings] PATCH error:", err);
+    return NextResponse.json({ error: "Failed to update vision setting" }, { status: 500 });
   }
 }

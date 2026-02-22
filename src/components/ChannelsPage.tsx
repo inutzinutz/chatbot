@@ -714,9 +714,15 @@ function FacebookSection({
 function LineSection({
   channel,
   onChange,
+  visionEnabled,
+  visionSaving,
+  toggleVision,
 }: {
   channel: ChannelInfo;
   onChange: (ch: ChannelInfo) => void;
+  visionEnabled: boolean | null;
+  visionSaving: boolean;
+  toggleVision: (v: boolean) => void;
 }) {
   const line = channel.line!;
   const updateLine = (patch: Partial<typeof line>) =>
@@ -785,6 +791,46 @@ function LineSection({
           description="Use Reply API (free) instead of Push API when possible"
         />
       </SectionCard>
+
+      {/* Vision / File Analysis toggle — LINE-specific, saved instantly via PATCH */}
+      <SectionCard title="AI Vision & File Analysis" icon={<Eye className="h-4 w-4" />}>
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => !visionSaving && toggleVision(!(visionEnabled ?? true))}
+            disabled={visionSaving || visionEnabled === null}
+            className="flex items-start gap-3 w-full text-left group disabled:opacity-50"
+          >
+            {(visionEnabled ?? true) ? (
+              <ToggleRight className="h-6 w-6 text-green-500 shrink-0 mt-0.5" />
+            ) : (
+              <ToggleLeft className="h-6 w-6 text-gray-300 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <span className="text-sm font-medium text-gray-800 group-hover:text-gray-900">
+                รับรูปภาพ / ไฟล์จากลูกค้า {visionSaving && <span className="text-xs text-gray-400">(กำลังบันทึก...)</span>}
+              </span>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                เปิด: AI วิเคราะห์รูปภาพและ PDF ที่ลูกค้าส่งมาใน LINE อัตโนมัติ (GPT-4o Vision / Claude)<br />
+                ปิด: บอทตอบว่าไม่รองรับไฟล์ชั่วคราว
+              </p>
+            </div>
+          </button>
+          {(visionEnabled ?? true) && (
+            <div className="rounded-lg bg-green-50 border border-green-100 px-3 py-2 text-xs text-green-700 space-y-1">
+              <p className="font-medium">รองรับ:</p>
+              <p>รูปภาพ: JPEG, PNG, WEBP, GIF (สูงสุด 10MB)</p>
+              <p>เอกสาร: PDF (แปลงข้อความ + สรุปด้วย AI)</p>
+              <p>วีดีโอ: แจ้งให้ลูกค้าส่งเป็นรูปภาพแทน</p>
+            </div>
+          )}
+          {!(visionEnabled ?? true) && (
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-500">
+              Vision ปิดอยู่ — บอทจะตอบให้ลูกค้าพิมพ์ข้อความแทนการส่งไฟล์
+            </div>
+          )}
+        </div>
+      </SectionCard>
     </>
   );
 }
@@ -808,6 +854,35 @@ function ChannelDetail({
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Vision toggle state — loaded from server, toggled via PATCH
+  const [visionEnabled, setVisionEnabled] = useState<boolean | null>(null);
+  const [visionSaving, setVisionSaving] = useState(false);
+
+  // Load vision status when LINE channel is opened
+  const [visionLoaded, setVisionLoaded] = useState(false);
+  if (channel.type === "LINE" && !visionLoaded) {
+    setVisionLoaded(true);
+    fetch(`/api/line/settings/${businessId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.visionEnabled === "boolean") setVisionEnabled(data.visionEnabled);
+      })
+      .catch(() => { /* non-critical */ });
+  }
+
+  const toggleVision = async (enabled: boolean) => {
+    setVisionSaving(true);
+    try {
+      await fetch(`/api/line/settings/${businessId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visionEnabled: enabled }),
+      });
+      setVisionEnabled(enabled);
+    } catch { /* non-critical */ }
+    setVisionSaving(false);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -941,7 +1016,13 @@ function ChannelDetail({
           <FacebookSection channel={channel} onChange={onChange} />
         )}
         {channel.type === "LINE" && channel.line && (
-          <LineSection channel={channel} onChange={onChange} />
+          <LineSection
+            channel={channel}
+            onChange={onChange}
+            visionEnabled={visionEnabled}
+            visionSaving={visionSaving}
+            toggleVision={toggleVision}
+          />
         )}
 
         {/* Common settings */}

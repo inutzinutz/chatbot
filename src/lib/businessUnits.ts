@@ -97,12 +97,23 @@ import { analyticsData as evlifeAnalyticsData } from "@/lib/evlife/analytics";
 /*  BusinessConfig — everything the pipeline needs for one business   */
 /* ------------------------------------------------------------------ */
 
+export interface BusinessFeatures {
+  /** Allow customers to send images/files for AI vision analysis (web chat + LINE) */
+  visionEnabled: boolean;
+  /** Max file size in MB for vision uploads */
+  visionMaxMB: number;
+  /** Reply when video is sent via LINE (vision can't process video directly) */
+  videoReplyEnabled: boolean;
+}
+
 export interface BusinessConfig {
   id: string;
   name: string;
   shortName: string;
   description: string;
   primaryColor: string;
+  /** Feature flags — can be toggled per business */
+  features: BusinessFeatures;
   /** All products in catalog */
   products: Product[];
   /** FAQ data */
@@ -162,6 +173,12 @@ const djiConfig: BusinessConfig = {
   shortName: "DJI 13",
   description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ",
   primaryColor: "#3b82f6",
+
+  features: {
+    visionEnabled: true,
+    visionMaxMB: 10,
+    videoReplyEnabled: true,
+  },
 
   products: djiProducts,
   faqData: djiFaqData,
@@ -229,6 +246,12 @@ const evlifeConfig: BusinessConfig = {
   shortName: "EV Life",
   description: "ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV & ตัวแทน EM",
   primaryColor: "#f97316",
+
+  features: {
+    visionEnabled: true,
+    visionMaxMB: 10,
+    videoReplyEnabled: true,
+  },
 
   products: evlifeProducts,
   faqData: evlifeFaqData,
@@ -312,6 +335,12 @@ const dji13serviceConfig: BusinessConfig = {
   shortName: "13 Service",
   description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI",
   primaryColor: "#ef4444",
+
+  features: {
+    visionEnabled: true,
+    visionMaxMB: 10,
+    videoReplyEnabled: true,
+  },
 
   products: svcProducts,
   faqData: svcFaqData,
