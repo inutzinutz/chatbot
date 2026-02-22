@@ -43,7 +43,8 @@ export type CallSite =
   | "fb_claude"
   | "fb_openai"
   | "fb_vision_image"
-  | "monitoring_summary";
+  | "monitoring_summary"
+  | "crm_extract";
 
 // ── Types ──
 

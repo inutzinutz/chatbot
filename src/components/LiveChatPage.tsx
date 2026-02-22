@@ -27,6 +27,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CRMPanel from "@/components/CRMPanel";
 import type {
   ChatConversation,
   ChatMessage,
@@ -960,7 +961,10 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
         </div>
       </div>
 
-      {/* ── Right Panel: Chat Thread ── */}
+      {/* ── Center + Right: Chat Thread + CRM Panel ── */}
+      <div className="flex-1 flex overflow-hidden">
+
+      {/* ── Chat Thread ── */}
       <div className="flex-1 flex flex-col bg-white">
         {!activeUserId ? (
           /* Empty state */
@@ -1635,6 +1639,17 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
           </>
         )}
       </div>
+
+      {/* ── CRM Panel (right) — shown only when a conversation is active ── */}
+      {activeUserId && activeConv && (
+        <CRMPanel
+          businessId={businessId}
+          userId={activeUserId}
+          displayName={activeConv.displayName}
+        />
+      )}
+
+      </div>{/* end center+right wrapper */}
     </div>
   );
 }

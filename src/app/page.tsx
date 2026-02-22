@@ -18,6 +18,7 @@ import ShippingPage from "@/components/ShippingPage";
 import ChannelsPage from "@/components/ChannelsPage";
 import AdminMonitorPage from "@/components/AdminMonitorPage";
 import MonitoringPage from "@/components/MonitoringPage";
+import CRMPage from "@/components/CRMPage";
 import {
   Code,
   ExternalLink,
@@ -215,6 +216,8 @@ export default function Home() {
         return <AdminMonitorPage key={businessId} businessId={businessId} />;
       case "monitoring":
         return <MonitoringPage key={businessId} businessId={businessId} />;
+      case "crm":
+        return <CRMPage key={businessId} businessId={businessId} />;
       case "channels":
         return <ChannelsPage key={businessId} businessId={businessId} />;
       case "settings":
