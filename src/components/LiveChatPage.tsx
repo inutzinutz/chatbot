@@ -23,6 +23,8 @@ import {
   ShoppingCart,
   Wrench,
   Snowflake,
+  FileText,
+  ZoomIn,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -1058,10 +1060,39 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                           )}
                         </div>
                       )}
-                      {/* Message text */}
-                      <p className="whitespace-pre-wrap break-words">
-                        {msg.content}
-                      </p>
+                      {/* Message content — image, file, or text */}
+                      {msg.imageUrl ? (
+                        <a
+                          href={msg.imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group/img block relative"
+                          title="คลิกเพื่อดูรูปขนาดเต็ม"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={msg.imageUrl}
+                            alt={msg.fileName || "รูปภาพ"}
+                            className="max-h-56 max-w-full rounded-xl object-cover block"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-0 rounded-xl bg-black/0 group-hover/img:bg-black/20 transition-colors flex items-center justify-center">
+                            <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover/img:opacity-100 transition-opacity drop-shadow" />
+                          </div>
+                          {msg.fileName && (
+                            <p className="text-[10px] mt-1 text-gray-400">{msg.fileName}</p>
+                          )}
+                        </a>
+                      ) : msg.fileName && !msg.imageUrl ? (
+                        <div className="flex items-center gap-2 py-0.5">
+                          <FileText className="h-4 w-4 shrink-0 text-gray-400" />
+                          <span className="text-sm break-all">{msg.fileName}</span>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words">
+                          {msg.content}
+                        </p>
+                      )}
                       {/* Timestamp */}
                       <p
                         className={cn(

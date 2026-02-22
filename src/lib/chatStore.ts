@@ -56,6 +56,16 @@ export interface ChatMessage {
   pipelineLayerName?: string;
   /** Username of the admin who sent this message (populated for role="admin" only) */
   sentBy?: string;
+  /**
+   * For image messages: data URL (data:image/jpeg;base64,...) or https URL.
+   * Stored so admin panel can render image thumbnails in the chat.
+   * LINE CDN URLs expire in 24h — prefer storing base64 data URL for persistence.
+   */
+  imageUrl?: string;
+  /** Original file name for file/PDF messages */
+  fileName?: string;
+  /** MIME type of the attached file */
+  fileMimeType?: string;
 }
 
 /**
@@ -289,7 +299,9 @@ class ChatStore {
     const ck = convKey(businessId, userId);
     const conv = await getJSON<ChatConversation>(ck);
     if (conv) {
-      conv.lastMessage = msg.content.slice(0, 100);
+      conv.lastMessage = msg.imageUrl
+        ? `[รูปภาพ] ${msg.content || ""}`.trim().slice(0, 100)
+        : msg.content.slice(0, 100);
       conv.lastMessageAt = msg.timestamp;
       conv.lastMessageRole = msg.role;
       if (msg.role === "customer") {

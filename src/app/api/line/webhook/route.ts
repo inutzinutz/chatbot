@@ -655,11 +655,18 @@ export async function POST(req: NextRequest) {
       diag.mimeType = content.mimeType;
       diag.fileName = fileName;
 
-      // Store customer message
+      // Store customer message — include imageUrl so admin panel can render it
+      const isImageMsg = content.mimeType.startsWith("image/");
       await chatStore.addMessage(businessId, lineUserId, {
         role: "customer",
-        content: `[ส่งไฟล์: ${fileName} (${content.mimeType})]`,
+        content: isImageMsg ? "" : `[ส่งไฟล์: ${fileName}]`,
         timestamp: Date.now(),
+        fileName,
+        fileMimeType: content.mimeType,
+        // Store as data URL for persistent rendering (LINE CDN URLs expire in 24h)
+        imageUrl: isImageMsg
+          ? `data:${content.mimeType};base64,${content.base64}`
+          : undefined,
       });
 
       // Call vision analysis
