@@ -137,11 +137,17 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     if (!preName.trim()) return;
     setPreSubmitting(true);
 
-    const sessionId = generateUUID();
+    // ถ้ามีเบอร์โทร → ใช้เบอร์เป็น sessionId (ข้าม device ได้)
+    // ถ้าไม่มีเบอร์ → ใช้ UUID (anonymous)
+    const normalizedPhone = prePhone.trim().replace(/[-\s]/g, "");
+    const sessionId = normalizedPhone
+      ? `phone_${normalizedPhone}`
+      : generateUUID();
+
     const profile: WebProfile = {
       sessionId,
       displayName: preName.trim(),
-      phone: prePhone.trim(),
+      phone: normalizedPhone,
     };
     try { localStorage.setItem(getProfileKey(businessId), JSON.stringify(profile)); } catch { /* ignore */ }
     setWebProfile(profile);

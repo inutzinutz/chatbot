@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Prefix sessionId so web users never collide with LINE userIds
+    // Prefix sessionId so web users never collide with LINE/Facebook userIds
+    // If sessionId starts with "phone_" the same user across devices maps to same userId
     const userId = `web_${sessionId}`;
 
-    // Ensure conversation exists
+    // Ensure conversation exists — always update displayName in case user re-submitted form
     await chatStore.getOrCreateConversation(businessId, userId, {
       displayName: displayName || "Web User",
       source: "web",
