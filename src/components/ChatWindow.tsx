@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ChatMessage from "./ChatMessage";
 import ChatInput, { type AttachedFile } from "./ChatInput";
 import QuickReplies from "./QuickReplies";
-import { Bot, RotateCcw, FileText, ShieldCheck } from "lucide-react";
+import { Bot, RotateCcw, FileText, ShieldCheck, User, Phone, ArrowRight } from "lucide-react";
 import type { PipelineTrace } from "@/lib/inspector";
 import { trackChatEvent } from "@/lib/chatEvents";
 import { businessUnitList, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
@@ -14,6 +14,20 @@ function getPdpaStorageKey(businessId: string) {
   return `pdpa_consent_v1_${businessId}`;
 }
 
+function getSessionKey(businessId: string) {
+  return `web_session_${businessId}`;
+}
+
+function getProfileKey(businessId: string) {
+  return `web_profile_${businessId}`;
+}
+
+interface WebProfile {
+  sessionId: string;
+  displayName: string;
+  phone: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
@@ -21,7 +35,6 @@ interface Message {
   trace?: PipelineTrace;
   clarifyOptions?: string[];
   isStreaming?: boolean;
-  /** For user messages with an attached file */
   attachment?: {
     name: string;
     mimeType: string;
@@ -58,6 +71,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 interface ChatWindowProps {
   businessId?: string;
 }
@@ -68,26 +88,68 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
   const [showQuickReplies, setShowQuickReplies] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // ── PDPA consent state (scoped per BU) ──
+  // ── PDPA consent ──
   const [pdpaConsented, setPdpaConsented] = useState<boolean>(false);
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(getPdpaStorageKey(businessId));
-      setPdpaConsented(stored === "1");
-    } catch {
-      setPdpaConsented(false);
-    }
+      setPdpaConsented(localStorage.getItem(getPdpaStorageKey(businessId)) === "1");
+    } catch { setPdpaConsented(false); }
   }, [businessId]);
 
-  const acceptPdpa = () => {
+  // ── Web profile (name + phone + sessionId) ──
+  const [webProfile, setWebProfile] = useState<WebProfile | null>(null);
+  const [showPreChat, setShowPreChat] = useState(false);
+  const [preName, setPreName] = useState("");
+  const [prePhone, setPrePhone] = useState("");
+  const [preSubmitting, setPreSubmitting] = useState(false);
+
+  useEffect(() => {
     try {
-      localStorage.setItem(getPdpaStorageKey(businessId), "1");
-    } catch { /* ignore storage errors */ }
+      const stored = localStorage.getItem(getProfileKey(businessId));
+      if (stored) {
+        setWebProfile(JSON.parse(stored) as WebProfile);
+        setShowPreChat(false);
+      } else if (localStorage.getItem(getPdpaStorageKey(businessId)) === "1") {
+        // PDPA accepted but no profile yet → show pre-chat form
+        setShowPreChat(true);
+      }
+    } catch { /* ignore */ }
+  }, [businessId]);
+
+  // Show pre-chat form after PDPA is accepted (if no profile yet)
+  useEffect(() => {
+    if (pdpaConsented && !webProfile) {
+      try {
+        const stored = localStorage.getItem(getProfileKey(businessId));
+        if (!stored) setShowPreChat(true);
+      } catch { setShowPreChat(true); }
+    }
+  }, [pdpaConsented, webProfile, businessId]);
+
+  const acceptPdpa = () => {
+    try { localStorage.setItem(getPdpaStorageKey(businessId), "1"); } catch { /* ignore */ }
     setPdpaConsented(true);
     trackChatEvent({ type: "session_start" });
   };
 
-  // Reset messages when businessId changes
+  const submitPreChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!preName.trim()) return;
+    setPreSubmitting(true);
+
+    const sessionId = generateUUID();
+    const profile: WebProfile = {
+      sessionId,
+      displayName: preName.trim(),
+      phone: prePhone.trim(),
+    };
+    try { localStorage.setItem(getProfileKey(businessId), JSON.stringify(profile)); } catch { /* ignore */ }
+    setWebProfile(profile);
+    setShowPreChat(false);
+    setPreSubmitting(false);
+  };
+
+  // Reset when businessId changes
   useEffect(() => {
     setMessages([getWelcomeMessage(businessId)]);
     setShowQuickReplies(true);
@@ -98,95 +160,79 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [messages, isLoading, scrollToBottom]);
 
-  // ── File (vision) path ──────────────────────────────────────────
+  // ── Save exchange to chatStore (fire-and-forget) ──
+  const saveWebExchange = useCallback((userMsg: string, botMsg: string, userTs: number, botTs: number) => {
+    if (!webProfile) return;
+    fetch("/api/chat/web-save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId,
+        sessionId: webProfile.sessionId,
+        displayName: webProfile.displayName,
+        phone: webProfile.phone || undefined,
+        userMessage: userMsg,
+        botMessage: botMsg,
+        userTs,
+        botTs,
+      }),
+    }).catch(() => {});
+  }, [businessId, webProfile]);
+
+  // ── File (vision) path ──
   const sendFile = async (file: AttachedFile, userPrompt: string) => {
     const startedAt = Date.now();
     const minThinkingMs = 850;
 
-    // Show user message with file attachment
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
       content: userPrompt || `[ส่งไฟล์: ${file.name}]`,
-      attachment: {
-        name: file.name,
-        mimeType: file.mimeType,
-        previewUrl: file.previewUrl,
-      },
+      attachment: { name: file.name, mimeType: file.mimeType, previewUrl: file.previewUrl },
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
     setShowQuickReplies(false);
 
-    trackChatEvent({
-      type: "message_sent",
-      messageLength: userPrompt.length,
-      messagePreview: `[file: ${file.name}] ${userPrompt.slice(0, 80)}`,
-    });
+    trackChatEvent({ type: "message_sent", messageLength: userPrompt.length, messagePreview: `[file: ${file.name}] ${userPrompt.slice(0, 80)}` });
 
     try {
       const resp = await fetch("/api/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileData: file.dataBase64,
-          mimeType: file.mimeType,
-          fileName: file.name,
-          userPrompt: userPrompt || undefined,
-          businessId,
-        }),
+        body: JSON.stringify({ fileData: file.dataBase64, mimeType: file.mimeType, fileName: file.name, userPrompt: userPrompt || undefined, businessId }),
       });
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
 
       const data = await resp.json() as { content?: string; error?: string };
+      const botContent = data.content || data.error || "ไม่สามารถวิเคราะห์ไฟล์ได้ครับ";
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: data.content || data.error || "ไม่สามารถวิเคราะห์ไฟล์ได้ครับ",
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => [...prev, { id: `assistant-${Date.now()}`, role: "assistant", content: botContent }]);
+      saveWebExchange(userMessage.content, botContent, startedAt, Date.now());
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "assistant",
-          content: "ขออภัยครับ เกิดข้อผิดพลาดในการวิเคราะห์ไฟล์ กรุณาลองใหม่ครับ",
-        },
-      ]);
+      setMessages((prev) => [...prev, { id: `error-${Date.now()}`, role: "assistant", content: "ขออภัยครับ เกิดข้อผิดพลาดในการวิเคราะห์ไฟล์ กรุณาลองใหม่ครับ" }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ── Text chat path ──────────────────────────────────────────────
+  // ── Text chat path ──
   const sendText = async (content: string) => {
     const startedAt = Date.now();
     const minThinkingMs = 850;
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content,
-    };
+    const userMessage: Message = { id: `user-${Date.now()}`, role: "user", content };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
     setShowQuickReplies(false);
 
-    trackChatEvent({
-      type: "message_sent",
-      messageLength: content.length,
-      messagePreview: content.slice(0, 100),
-    });
+    trackChatEvent({ type: "message_sent", messageLength: content.length, messagePreview: content.slice(0, 100) });
 
     try {
       const response = await fetch("/api/chat", {
@@ -194,6 +240,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
         headers: {
           "Content-Type": "application/json",
           ...(pdpaConsented ? { "x-pdpa-consent": "1" } : {}),
+          ...(webProfile ? { "x-conversation-id": `web_${webProfile.sessionId}` } : {}),
         },
         body: JSON.stringify({
           messages: [...messages, userMessage]
@@ -217,10 +264,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           const elapsed = Date.now() - startedAt;
           if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
           assistantId = `assistant-${Date.now()}`;
-          setMessages((prev) => [
-            ...prev,
-            { id: assistantId!, role: "assistant", content: assistantContent, trace: streamTrace },
-          ]);
+          setMessages((prev) => [...prev, { id: assistantId!, role: "assistant", content: assistantContent, trace: streamTrace }]);
           setIsLoading(false);
         };
 
@@ -248,11 +292,7 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
                       await maybeFlushFirstToken();
                     } else {
                       setMessages((prev) =>
-                        prev.map((m) =>
-                          m.id === assistantId
-                            ? { ...m, content: assistantContent, trace: streamTrace }
-                            : m
-                        )
+                        prev.map((m) => m.id === assistantId ? { ...m, content: assistantContent, trace: streamTrace } : m)
                       );
                     }
                   }
@@ -262,15 +302,10 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           }
           if (!assistantId) await maybeFlushFirstToken();
 
+          if (assistantContent) saveWebExchange(content, assistantContent, startedAt, Date.now());
+
           if (streamTrace) {
-            trackChatEvent({
-              type: "response_received",
-              mode: streamTrace.mode,
-              finalLayer: streamTrace.finalLayer,
-              finalLayerName: streamTrace.finalLayerName,
-              intent: streamTrace.finalIntent,
-              responseTimeMs: Date.now() - startedAt,
-            });
+            trackChatEvent({ type: "response_received", mode: streamTrace.mode, finalLayer: streamTrace.finalLayer, finalLayerName: streamTrace.finalLayerName, intent: streamTrace.finalIntent, responseTimeMs: Date.now() - startedAt });
           }
         }
       } else {
@@ -279,47 +314,23 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
         if (elapsed < minThinkingMs) await sleep(minThinkingMs - elapsed);
 
         const trace = data.trace as PipelineTrace | undefined;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: data.content,
-            trace,
-            clarifyOptions: data.clarifyOptions as string[] | undefined,
-          },
-        ]);
+        const botContent: string = data.content;
+        setMessages((prev) => [...prev, { id: `assistant-${Date.now()}`, role: "assistant", content: botContent, trace, clarifyOptions: data.clarifyOptions as string[] | undefined }]);
         setIsLoading(false);
 
-        trackChatEvent({
-          type: "response_received",
-          mode: trace?.mode,
-          finalLayer: trace?.finalLayer,
-          finalLayerName: trace?.finalLayerName,
-          intent: trace?.finalIntent,
-          responseTimeMs: Date.now() - startedAt,
-        });
+        if (botContent) saveWebExchange(content, botContent, startedAt, Date.now());
+
+        trackChatEvent({ type: "response_received", mode: trace?.mode, finalLayer: trace?.finalLayer, finalLayerName: trace?.finalLayerName, intent: trace?.finalIntent, responseTimeMs: Date.now() - startedAt });
       }
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "assistant",
-          content: "ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้งครับ",
-        },
-      ]);
+      setMessages((prev) => [...prev, { id: `error-${Date.now()}`, role: "assistant", content: "ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้งครับ" }]);
       setIsLoading(false);
     }
   };
 
-  // ── Unified onSend from ChatInput ───────────────────────────────
   const handleSend = (content: string, file?: AttachedFile) => {
-    if (file) {
-      sendFile(file, content);
-    } else if (content.trim()) {
-      sendText(content);
-    }
+    if (file) sendFile(file, content);
+    else if (content.trim()) sendText(content);
   };
 
   const resetChat = () => {
@@ -329,9 +340,12 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
     trackChatEvent({ type: "session_start" });
   };
 
+  const bizName = businessUnitList.find((b) => b.id === businessId)?.name || "Assistant";
+
   return (
     <div className="relative flex h-full flex-col bg-gray-50">
-      {/* PDPA Consent Banner */}
+
+      {/* ── PDPA Consent Banner ── */}
       {!pdpaConsented && (
         <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-sm">
           <div className="w-full rounded-t-2xl bg-white p-5 shadow-2xl">
@@ -355,7 +369,68 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
         </div>
       )}
 
-      {/* Header */}
+      {/* ── Pre-chat form (name + phone) ── */}
+      {pdpaConsented && showPreChat && (
+        <div className="absolute inset-0 z-40 flex items-end justify-center bg-black/20 backdrop-blur-sm">
+          <div className="w-full rounded-t-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-1 flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{bizName}</p>
+                <p className="text-[11px] text-gray-400">กรุณาแนะนำตัวก่อนเริ่มแชท</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mb-4 mt-2">
+              เพื่อให้ทีมงานติดต่อกลับได้สะดวก กรุณากรอกชื่อและเบอร์โทรศัพท์
+            </p>
+            <form onSubmit={submitPreChat} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  ชื่อ <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={preName}
+                    onChange={(e) => setPreName(e.target.value)}
+                    placeholder="ชื่อของคุณ"
+                    required
+                    className="w-full pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  เบอร์โทรศัพท์ <span className="text-gray-400 font-normal">(ไม่บังคับ)</span>
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    type="tel"
+                    value={prePhone}
+                    onChange={(e) => setPrePhone(e.target.value)}
+                    placeholder="0XX-XXX-XXXX"
+                    className="w-full pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={!preName.trim() || preSubmitting}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                เริ่มแชทเลย
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between border-b border-gray-100 bg-white px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-gray-800 to-gray-900 text-white shadow-md">
@@ -363,11 +438,13 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
           </div>
           <div>
             <h2 className="text-sm font-semibold text-gray-900">
-              {(businessUnitList.find((b) => b.id === businessId)?.name || "EV Life Thailand") + " Assistant"}
+              {bizName + " Assistant"}
             </h2>
             <div className="flex items-center gap-1.5">
               <div className="h-2 w-2 rounded-full bg-green-500" />
-              <span className="text-xs text-gray-500">ออนไลน์</span>
+              <span className="text-xs text-gray-500">
+                {webProfile ? webProfile.displayName : "ออนไลน์"}
+              </span>
             </div>
           </div>
         </div>
@@ -380,20 +457,15 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
         </button>
       </div>
 
-      {/* Messages */}
+      {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
         {messages.map((msg, idx) => (
           <div key={msg.id}>
-            {/* File attachment preview in user bubble */}
             {msg.attachment && (
               <div className="flex justify-end px-4 pb-1">
                 {msg.attachment.previewUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={msg.attachment.previewUrl}
-                    alt={msg.attachment.name}
-                    className="max-h-48 max-w-[70%] rounded-xl object-cover shadow-sm"
-                  />
+                  <img src={msg.attachment.previewUrl} alt={msg.attachment.name} className="max-h-48 max-w-[70%] rounded-xl object-cover shadow-sm" />
                 ) : (
                   <div className="flex items-center gap-2 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2 text-sm text-indigo-700 max-w-[70%]">
                     <FileText className="h-4 w-4 shrink-0" />
@@ -403,46 +475,31 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
               </div>
             )}
 
-            <ChatMessage
-              role={msg.role}
-              content={msg.content}
-              trace={msg.trace}
-            />
+            <ChatMessage role={msg.role} content={msg.content} trace={msg.trace} />
 
-            {/* Clarify option chips — only on last assistant message when not loading */}
-            {msg.role === "assistant" &&
-              msg.clarifyOptions &&
-              msg.clarifyOptions.length > 0 &&
-              idx === messages.length - 1 &&
-              !isLoading && (
-                <div className="flex flex-wrap gap-2 px-4 pb-2">
-                  {msg.clarifyOptions.map((opt) => (
-                    <button
-                      key={opt}
-                      onClick={() => sendText(opt)}
-                      disabled={isLoading}
-                      className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-100 transition-colors"
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              )}
+            {msg.role === "assistant" && msg.clarifyOptions && msg.clarifyOptions.length > 0 && idx === messages.length - 1 && !isLoading && (
+              <div className="flex flex-wrap gap-2 px-4 pb-2">
+                {msg.clarifyOptions.map((opt) => (
+                  <button key={opt} onClick={() => sendText(opt)} disabled={isLoading}
+                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-100 transition-colors">
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
-        {isLoading && (
-          <ChatMessage role="assistant" content="" isLoading={true} />
-        )}
+        {isLoading && <ChatMessage role="assistant" content="" isLoading={true} />}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Replies */}
+      {/* ── Quick Replies ── */}
       {showQuickReplies && (
         <QuickReplies onSelect={(text) => sendText(text)} disabled={isLoading} businessId={businessId} />
       )}
 
-      {/* Input */}
-      <ChatInput onSend={handleSend} disabled={isLoading || !pdpaConsented} maxLength={500} />
+      {/* ── Input ── */}
+      <ChatInput onSend={handleSend} disabled={isLoading || !pdpaConsented || (pdpaConsented && showPreChat)} maxLength={500} />
     </div>
   );
 }
