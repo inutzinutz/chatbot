@@ -138,6 +138,17 @@ export interface DailyDigest {
 }
 
 /**
+ * Quick Reply Template — a pre-written admin message snippet.
+ * Key: templates:{businessId}  → JSON array
+ */
+export interface QuickReplyTemplate {
+  id: string;
+  title: string;    // short label shown in the picker
+  text: string;     // full message text
+  createdAt: number;
+}
+
+/**
  * A single pending work item — conversation that needs attention.
  */
 export interface PendingWork {
@@ -747,6 +758,41 @@ class ChatStore {
       } catch { /* skip */ }
     }
     return stats;
+  }
+
+  // ── Quick Reply Templates ──
+
+  async getTemplates(businessId: string): Promise<QuickReplyTemplate[]> {
+    const raw = await redis.get(`templates:${businessId}`);
+    if (!raw) return [];
+    try { return JSON.parse(raw) as QuickReplyTemplate[]; } catch { return []; }
+  }
+
+  async saveTemplate(businessId: string, template: Omit<QuickReplyTemplate, "id" | "createdAt">): Promise<QuickReplyTemplate> {
+    const templates = await this.getTemplates(businessId);
+    const newTemplate: QuickReplyTemplate = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      ...template,
+    };
+    templates.push(newTemplate);
+    await redis.set(`templates:${businessId}`, JSON.stringify(templates));
+    return newTemplate;
+  }
+
+  async deleteTemplate(businessId: string, templateId: string): Promise<void> {
+    const templates = await this.getTemplates(businessId);
+    const filtered = templates.filter((t) => t.id !== templateId);
+    await redis.set(`templates:${businessId}`, JSON.stringify(filtered));
+  }
+
+  async updateTemplate(businessId: string, templateId: string, updates: Partial<Pick<QuickReplyTemplate, "title" | "text">>): Promise<void> {
+    const templates = await this.getTemplates(businessId);
+    const idx = templates.findIndex((t) => t.id === templateId);
+    if (idx >= 0) {
+      templates[idx] = { ...templates[idx], ...updates };
+      await redis.set(`templates:${businessId}`, JSON.stringify(templates));
+    }
   }
 }
 

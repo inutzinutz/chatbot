@@ -31,6 +31,7 @@ import type {
   ChatConversation,
   ChatMessage,
   FollowUpResult,
+  QuickReplyTemplate,
 } from "@/lib/chatStore";
 
 interface LiveChatPageProps {
@@ -115,6 +116,15 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [editingFollowup, setEditingFollowup] = useState(false);
   const [sendingFollowup, setSendingFollowup] = useState(false);
 
+  // ── Quick Reply Templates state ──
+  const [templates, setTemplates] = useState<QuickReplyTemplate[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templateFilter, setTemplateFilter] = useState("");
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState("");
+  const [newTemplateText, setNewTemplateText] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
   // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -176,17 +186,31 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     } catch {}
   }, [businessId]);
 
+  // ── Fetch quick reply templates ──
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/chat/admin?businessId=${encodeURIComponent(businessId)}&view=templates`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data.templates || []);
+      }
+    } catch {}
+  }, [businessId]);
+
   // ── Polling ──
   useEffect(() => {
     fetchConversations();
     fetchFollowups();
+    fetchTemplates();
     pollRef.current = setInterval(() => {
       fetchConversations();
     }, 5000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchConversations, fetchFollowups]);
+  }, [fetchConversations, fetchFollowups, fetchTemplates]);
 
   useEffect(() => {
     if (activeUserId) {
@@ -252,6 +276,66 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     }
     setSending(false);
     inputRef.current?.focus();
+  };
+
+  // ── Quick Reply Template: use template ──
+  const applyTemplate = (template: QuickReplyTemplate) => {
+    setInputText(template.text);
+    setShowTemplatePicker(false);
+    setTemplateFilter("");
+    inputRef.current?.focus();
+  };
+
+  // ── Quick Reply Template: save new ──
+  const handleSaveTemplate = async () => {
+    if (!newTemplateTitle.trim() || !newTemplateText.trim()) return;
+    setSavingTemplate(true);
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "saveTemplate",
+          businessId,
+          title: newTemplateTitle.trim(),
+          text: newTemplateText.trim(),
+        }),
+      });
+      setNewTemplateTitle("");
+      setNewTemplateText("");
+      await fetchTemplates();
+    } catch {}
+    setSavingTemplate(false);
+  };
+
+  // ── Quick Reply Template: delete ──
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deleteTemplate",
+          businessId,
+          templateId,
+        }),
+      });
+      await fetchTemplates();
+    } catch {}
+  };
+
+  // ── Input change handler (detect "/" to open template picker) ──
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+    if (val === "/") {
+      setShowTemplatePicker(true);
+      setTemplateFilter("");
+    } else if (val.startsWith("/") && showTemplatePicker) {
+      setTemplateFilter(val.slice(1).toLowerCase());
+    } else {
+      setShowTemplatePicker(false);
+    }
   };
 
   // ── Toggle bot ──
@@ -1125,13 +1209,69 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
 
             {/* Input Area */}
             <div className="px-4 py-3 border-t border-gray-200 bg-white">
+              {/* Quick Reply Template Picker */}
+              {showTemplatePicker && templates.length > 0 && (
+                <div className="mb-2 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="px-3 py-1.5 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-[11px] text-gray-500 font-medium">ข้อความสำเร็จรูป</span>
+                    <button
+                      onClick={() => { setShowTemplatePicker(false); setInputText(""); }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {templates
+                    .filter((t) =>
+                      !templateFilter ||
+                      t.title.toLowerCase().includes(templateFilter) ||
+                      t.text.toLowerCase().includes(templateFilter)
+                    )
+                    .map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => applyTemplate(t)}
+                        className="w-full text-left px-3 py-2 hover:bg-indigo-50 transition-colors border-b border-gray-50 last:border-0"
+                      >
+                        <p className="text-xs font-semibold text-indigo-700">{t.title}</p>
+                        <p className="text-[11px] text-gray-500 truncate">{t.text}</p>
+                      </button>
+                    ))}
+                  {templates.filter((t) =>
+                    !templateFilter ||
+                    t.title.toLowerCase().includes(templateFilter) ||
+                    t.text.toLowerCase().includes(templateFilter)
+                  ).length === 0 && (
+                    <p className="px-3 py-2 text-[11px] text-gray-400">ไม่พบข้อความที่ตรงกัน</p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
+                {/* Template shortcut button */}
+                <button
+                  onClick={() => setShowTemplateManager((v) => !v)}
+                  title="จัดการข้อความสำเร็จรูป"
+                  className={cn(
+                    "p-2 rounded-lg border transition-all shrink-0",
+                    showTemplateManager
+                      ? "bg-indigo-100 border-indigo-300 text-indigo-700"
+                      : "border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-300"
+                  )}
+                >
+                  <Zap className="h-4 w-4" />
+                </button>
                 <input
                   ref={inputRef}
                   type="text"
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={(e) => {
+                    if (e.key === "Escape" && showTemplatePicker) {
+                      setShowTemplatePicker(false);
+                      setInputText("");
+                      return;
+                    }
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();
@@ -1139,8 +1279,8 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                   }}
                   placeholder={
                     activeConv?.botEnabled
-                      ? "Type a message... (Bot is auto-replying)"
-                      : "Type a message to customer..."
+                      ? "พิมพ์ข้อความ... (บอทตอบอัตโนมัติอยู่)  หรือพิมพ์ / เพื่อเลือกข้อความสำเร็จรูป"
+                      : "พิมพ์ข้อความถึงลูกค้า...  หรือพิมพ์ / เพื่อเลือกข้อความสำเร็จรูป"
                   }
                   className="flex-1 px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                   disabled={sending}
@@ -1161,8 +1301,7 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
               {activeConv?.botEnabled && (
                 <p className="text-[10px] text-green-600 mt-1.5 flex items-center gap-1">
                   <Bot className="h-3 w-3" />
-                  Bot is auto-replying to this customer. Turn off to reply
-                  manually.
+                  Bot is auto-replying to this customer. Turn off to reply manually.
                 </p>
               )}
               {activeConv && !activeConv.botEnabled && (
@@ -1170,6 +1309,85 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                   <Clock className="h-3 w-3" />
                   Bot is OFF. You are replying manually to this customer.
                 </p>
+              )}
+
+              {/* Template Manager Panel */}
+              {showTemplateManager && (
+                <div className="mt-3 border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-indigo-500" />
+                      ข้อความสำเร็จรูป ({templates.length})
+                    </span>
+                    <button
+                      onClick={() => setShowTemplateManager(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {/* Existing templates */}
+                  <div className="max-h-40 overflow-y-auto divide-y divide-gray-100">
+                    {templates.length === 0 && (
+                      <p className="px-3 py-3 text-[11px] text-gray-400 text-center">
+                        ยังไม่มีข้อความสำเร็จรูป — เพิ่มด้านล่างได้เลย
+                      </p>
+                    )}
+                    {templates.map((t) => (
+                      <div key={t.id} className="flex items-start gap-2 px-3 py-2 hover:bg-gray-50">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 truncate">{t.title}</p>
+                          <p className="text-[11px] text-gray-500 line-clamp-2">{t.text}</p>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => applyTemplate(t)}
+                            title="ใช้ข้อความนี้"
+                            className="text-indigo-500 hover:text-indigo-700 p-0.5"
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTemplate(t.id)}
+                            title="ลบ"
+                            className="text-red-400 hover:text-red-600 p-0.5"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Add new template */}
+                  <div className="p-3 bg-gray-50 border-t border-gray-200 space-y-2">
+                    <input
+                      type="text"
+                      value={newTemplateTitle}
+                      onChange={(e) => setNewTemplateTitle(e.target.value)}
+                      placeholder="ชื่อ (เช่น ทักทาย, ขอบคุณ)"
+                      className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                    <textarea
+                      value={newTemplateText}
+                      onChange={(e) => setNewTemplateText(e.target.value)}
+                      placeholder="ข้อความ..."
+                      rows={2}
+                      className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
+                    />
+                    <button
+                      onClick={handleSaveTemplate}
+                      disabled={savingTemplate || !newTemplateTitle.trim() || !newTemplateText.trim()}
+                      className={cn(
+                        "w-full py-1.5 text-xs rounded-lg font-medium transition-all",
+                        !savingTemplate && newTemplateTitle.trim() && newTemplateText.trim()
+                          ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      )}
+                    >
+                      {savingTemplate ? "กำลังบันทึก..." : "บันทึกข้อความสำเร็จรูป"}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </>

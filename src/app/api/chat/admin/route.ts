@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chatStore } from "@/lib/chatStore";
+import { chatStore, type QuickReplyTemplate } from "@/lib/chatStore";
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
@@ -61,6 +61,12 @@ export async function GET(req: NextRequest) {
   if (view === "followups") {
     const followups = await chatStore.getAllFollowUps(businessId);
     return NextResponse.json({ followups });
+  }
+
+  // View quick reply templates
+  if (view === "templates") {
+    const templates = await chatStore.getTemplates(businessId);
+    return NextResponse.json({ templates });
   }
 
   // View admin activity log
@@ -446,6 +452,40 @@ export async function POST(req: NextRequest) {
         detail: "ถอดหมุด",
         timestamp: Date.now(),
       });
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Save quick reply template ──
+    case "saveTemplate": {
+      const title = body.title as string;
+      const text = body.text as string;
+      if (!title || !text) {
+        return NextResponse.json({ error: "Missing title or text" }, { status: 400 });
+      }
+      const template = await chatStore.saveTemplate(businessId, { title, text });
+      return NextResponse.json({ success: true, template });
+    }
+
+    // ── Delete quick reply template ──
+    case "deleteTemplate": {
+      const templateId = body.templateId as string;
+      if (!templateId) {
+        return NextResponse.json({ error: "Missing templateId" }, { status: 400 });
+      }
+      await chatStore.deleteTemplate(businessId, templateId);
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Update quick reply template ──
+    case "updateTemplate": {
+      const templateId = body.templateId as string;
+      const updates: Partial<Pick<QuickReplyTemplate, "title" | "text">> = {};
+      if (body.title) updates.title = body.title as string;
+      if (body.text) updates.text = body.text as string;
+      if (!templateId) {
+        return NextResponse.json({ error: "Missing templateId" }, { status: 400 });
+      }
+      await chatStore.updateTemplate(businessId, templateId, updates);
       return NextResponse.json({ success: true });
     }
 
