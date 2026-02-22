@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chatStore, type QuickReplyTemplate } from "@/lib/chatStore";
+import { chatStore, type QuickReplyTemplate, type CRMNote } from "@/lib/chatStore";
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
@@ -67,6 +67,14 @@ export async function GET(req: NextRequest) {
   if (view === "templates") {
     const templates = await chatStore.getTemplates(businessId);
     return NextResponse.json({ templates });
+  }
+
+  // View CRM notes for a user
+  if (view === "notes") {
+    const noteUserId = req.nextUrl.searchParams.get("userId");
+    if (!noteUserId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+    const notes = await chatStore.getCRMNotes(businessId, noteUserId);
+    return NextResponse.json({ notes });
   }
 
   // View admin activity log
@@ -491,6 +499,24 @@ export async function POST(req: NextRequest) {
         timestamp: Date.now(),
         sentBy,
       });
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Add CRM note ──
+    case "addNote": {
+      if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      const noteText = body.text as string;
+      if (!noteText?.trim()) return NextResponse.json({ error: "Missing note text" }, { status: 400 });
+      const note = await chatStore.addCRMNote(businessId, userId, noteText.trim(), sentBy);
+      return NextResponse.json({ success: true, note });
+    }
+
+    // ── Delete CRM note ──
+    case "deleteNote": {
+      if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      const noteId = body.noteId as string;
+      if (!noteId) return NextResponse.json({ error: "Missing noteId" }, { status: 400 });
+      await chatStore.deleteCRMNote(businessId, userId, noteId);
       return NextResponse.json({ success: true });
     }
 

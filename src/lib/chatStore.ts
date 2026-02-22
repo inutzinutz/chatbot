@@ -141,6 +141,17 @@ export interface DailyDigest {
 }
 
 /**
+ * CRM Note — private admin note for a customer conversation.
+ * Key: crmnotes:{businessId}:{userId}  → JSON array
+ */
+export interface CRMNote {
+  id: string;
+  text: string;
+  createdBy: string;  // admin username
+  createdAt: number;
+}
+
+/**
  * Quick Reply Template — a pre-written admin message snippet.
  * Key: templates:{businessId}  → JSON array
  */
@@ -761,6 +772,28 @@ class ChatStore {
       } catch { /* skip */ }
     }
     return stats;
+  }
+
+  // ── CRM Notes ──
+
+  async getCRMNotes(businessId: string, userId: string): Promise<CRMNote[]> {
+    const raw = await redis.get(`crmnotes:${businessId}:${userId}`);
+    if (!raw) return [];
+    try { return JSON.parse(raw) as CRMNote[]; } catch { return []; }
+  }
+
+  async addCRMNote(businessId: string, userId: string, text: string, createdBy: string): Promise<CRMNote> {
+    const notes = await this.getCRMNotes(businessId, userId);
+    const note: CRMNote = { id: randomUUID(), text, createdBy, createdAt: Date.now() };
+    notes.push(note);
+    await redis.set(`crmnotes:${businessId}:${userId}`, JSON.stringify(notes));
+    return note;
+  }
+
+  async deleteCRMNote(businessId: string, userId: string, noteId: string): Promise<void> {
+    const notes = await this.getCRMNotes(businessId, userId);
+    const filtered = notes.filter((n) => n.id !== noteId);
+    await redis.set(`crmnotes:${businessId}:${userId}`, JSON.stringify(filtered));
   }
 
   // ── Agent Assignment ──

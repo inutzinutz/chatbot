@@ -116,6 +116,12 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [editingFollowup, setEditingFollowup] = useState(false);
   const [sendingFollowup, setSendingFollowup] = useState(false);
 
+  // ── CRM Notes state ──
+  const [notes, setNotes] = useState<import("@/lib/chatStore").CRMNote[]>([]);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+
   // ── Quick Reply Templates state ──
   const [templates, setTemplates] = useState<QuickReplyTemplate[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
@@ -199,6 +205,19 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     } catch {}
   }, [businessId]);
 
+  // ── Fetch CRM notes for active conversation ──
+  const fetchNotes = useCallback(async (uid: string) => {
+    try {
+      const res = await fetch(
+        `/api/chat/admin?businessId=${encodeURIComponent(businessId)}&view=notes&userId=${encodeURIComponent(uid)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setNotes(data.notes || []);
+      }
+    } catch {}
+  }, [businessId]);
+
   // ── Polling ──
   useEffect(() => {
     fetchConversations();
@@ -231,8 +250,11 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const selectConversation = async (userId: string) => {
     setActiveUserId(userId);
     setMessages([]);
+    setNotes([]);
+    setNoteText("");
     setActiveFollowup(null);
     setEditingFollowup(false);
+    fetchNotes(userId);
     try {
       await fetch("/api/chat/admin", {
         method: "POST",
@@ -346,6 +368,44 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
         }),
       });
       await fetchTemplates();
+    } catch {}
+  };
+
+  // ── CRM Note: add / delete ──
+  const handleAddNote = async () => {
+    if (!noteText.trim() || !activeUserId || savingNote) return;
+    setSavingNote(true);
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addNote",
+          businessId,
+          userId: activeUserId,
+          text: noteText.trim(),
+        }),
+      });
+      setNoteText("");
+      await fetchNotes(activeUserId);
+    } catch {}
+    setSavingNote(false);
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!activeUserId) return;
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deleteNote",
+          businessId,
+          userId: activeUserId,
+          noteId,
+        }),
+      });
+      await fetchNotes(activeUserId);
     } catch {}
   };
 
@@ -957,9 +1017,81 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                       </>
                     )}
                   </button>
+
+                  {/* Notes toggle */}
+                  <button
+                    onClick={() => setShowNotes((v) => !v)}
+                    title="บันทึกโน้ตลูกค้า"
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      showNotes
+                        ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                        : "bg-gray-50 text-gray-600 hover:bg-yellow-50 hover:text-yellow-700"
+                    )}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>Notes{notes.length > 0 ? ` (${notes.length})` : ""}</span>
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* CRM Notes Panel */}
+            {showNotes && (
+              <div className="border-b border-yellow-200 bg-yellow-50">
+                <div className="px-4 py-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-yellow-800 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5" />
+                    โน้ตส่วนตัว (ไม่ส่งให้ลูกค้า)
+                  </span>
+                  <button onClick={() => setShowNotes(false)} className="text-yellow-500 hover:text-yellow-700">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {notes.length > 0 && (
+                  <div className="px-4 pb-2 space-y-1.5 max-h-36 overflow-y-auto">
+                    {notes.map((n) => (
+                      <div key={n.id} className="flex items-start gap-2 bg-white rounded-lg px-3 py-2 border border-yellow-100">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-800 whitespace-pre-wrap">{n.text}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {n.createdBy} · {new Date(n.createdAt).toLocaleDateString("th-TH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <button onClick={() => handleDeleteNote(n.id)} className="text-gray-300 hover:text-red-500 shrink-0">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {notes.length === 0 && (
+                  <p className="px-4 pb-2 text-[11px] text-yellow-600">ยังไม่มีโน้ต — เพิ่มได้ด้านล่าง</p>
+                )}
+                <div className="px-4 pb-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAddNote(); }}
+                    placeholder="เพิ่มโน้ต..."
+                    className="flex-1 px-3 py-1.5 text-xs border border-yellow-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                  />
+                  <button
+                    onClick={handleAddNote}
+                    disabled={!noteText.trim() || savingNote}
+                    className={cn(
+                      "px-3 py-1.5 text-xs rounded-lg font-medium transition-all",
+                      noteText.trim() && !savingNote
+                        ? "bg-yellow-500 text-white hover:bg-yellow-600"
+                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    )}
+                  >
+                    {savingNote ? "..." : "บันทึก"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Pinned Banner */}
             {activeConv?.pinned && (
