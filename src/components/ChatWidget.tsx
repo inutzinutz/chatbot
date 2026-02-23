@@ -10,7 +10,7 @@ import { DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 const BIZ_COLORS: Record<string, { from: string; to: string; shadow: string }> = {
   dji13store:     { from: "#ef4444", to: "#dc2626", shadow: "rgba(239,68,68,0.35)" },
   evlifethailand: { from: "#f97316", to: "#ea580c", shadow: "rgba(249,115,22,0.35)" },
-  dji13service:   { from: "#ef4444", to: "#b91c1c", shadow: "rgba(239,68,68,0.35)" },
+  dji13support:   { from: "#ef4444", to: "#b91c1c", shadow: "rgba(239,68,68,0.35)" },
 };
 
 const DEFAULT_COLOR = { from: "#7c3aed", to: "#4f46e5", shadow: "rgba(99,102,241,0.35)" };

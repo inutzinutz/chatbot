@@ -105,7 +105,7 @@ const SVC_REPLIES: QuickReply[] = [
 const BU_CONFIG: Record<string, { categories: string[]; replies: QuickReply[] }> = {
   dji13store:   { categories: DJI_STORE_CATEGORIES, replies: DJI_STORE_REPLIES },
   evlifethailand: { categories: EVLIFE_CATEGORIES,  replies: EVLIFE_REPLIES },
-  dji13service: { categories: SVC_CATEGORIES,       replies: SVC_REPLIES },
+  dji13support: { categories: SVC_CATEGORIES,       replies: SVC_REPLIES },
 };
 
 const DEFAULT_BU_CONFIG = BU_CONFIG.dji13store;

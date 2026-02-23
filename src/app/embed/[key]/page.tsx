@@ -14,8 +14,8 @@ const EMBED_KEY_MAP: Record<string, EmbedConfig> = {
   script_test:          { businessId: "dji13store",     name: "DJI 13 STORE Test",          color: "#ef4444" },
   evlifethailand:       { businessId: "evlifethailand", name: "EV Life Thailand",            color: "#f97316" },
   evlife_demo:          { businessId: "evlifethailand", name: "EV Life Thailand Demo",       color: "#f97316" },
-  script_dji13service:  { businessId: "dji13service",   name: "DJI 13 Service Plus",         color: "#ef4444" },
-  dji13service_demo:    { businessId: "dji13service",   name: "DJI 13 Service Plus Demo",    color: "#ef4444" },
+  script_dji13support:  { businessId: "dji13support",   name: "DJI 13 Service Plus",         color: "#ef4444" },
+  dji13support_demo:    { businessId: "dji13support",   name: "DJI 13 Service Plus Demo",    color: "#ef4444" },
 };
 
 export default async function EmbedPage({

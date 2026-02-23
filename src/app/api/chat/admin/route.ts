@@ -6,7 +6,7 @@ import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedRe
 import { buildLineFlexCarousel, buildFbGenericCarousel } from "@/lib/carouselBuilder";
 import { products as dji13products } from "@/lib/products";
 import { products as evlifeProducts } from "@/lib/evlife/products";
-import { products as dji13serviceProducts } from "@/lib/dji13service/products";
+import { products as dji13serviceProducts } from "@/lib/dji13support/products";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -48,7 +48,7 @@ function getProductsForBusiness(businessId: string) {
   switch (businessId) {
     case "evlifethailand":
       return evlifeProducts;
-    case "dji13service":
+    case "dji13support":
       return dji13serviceProducts;
     default:
       return dji13products;

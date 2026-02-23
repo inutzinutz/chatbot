@@ -37,9 +37,9 @@ export const channels: ChannelInfo[] = [
     name: "Web Channel — DJI 13 Service",
     common: defaultCommon(),
     web: {
-      channelId: "dji13service-001",
-      scriptKey: "script_dji13service",
-      demoSitePath: "/embed/dji13service-001",
+      channelId: "dji13support-001",
+      scriptKey: "script_dji13support",
+      demoSitePath: "/embed/dji13support-001",
       widgetPosition: "bottom-right",
       primaryColor: "#ef4444",
       bubbleIcon: "headset",
@@ -77,7 +77,7 @@ export const channels: ChannelInfo[] = [
       accessToken: "",
       richMenuEnabled: true,
       richMenuId: "",
-      webhookUrl: "/api/line/webhook?businessId=dji13service",
+      webhookUrl: "/api/line/webhook?businessId=dji13support",
       useReplyApi: true,
     },
   },
@@ -129,7 +129,7 @@ export function buildOffHoursMessage(): string {
     `ขณะนี้เวลา ${hh}:${mm} น. อยู่นอกเวลาทำการครับ\n\n` +
     `⏰ **เวลาทำการ**: จันทร์–ศุกร์ 09:00–18:00 น. | เสาร์ 09:00–16:00 น. | อาทิตย์ปิดครับ\n\n` +
     `ทิ้งข้อความไว้ได้เลยครับ ทีมงานจะตอบกลับทันทีเมื่อเปิดทำการ\n\n` +
-    `📱 **LINE**: @dji13service\n` +
+    `📱 **LINE**: @dji13support\n` +
     `📞 **โทร**: 065-694-6155`
   );
 }

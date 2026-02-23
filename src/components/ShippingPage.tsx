@@ -102,7 +102,7 @@ const SEED_SHIPPING: Record<string, ShippingRule[]> = {
       active: true,
     },
   ],
-  dji13service: [
+  dji13support: [
     {
       id: 1,
       zone: "รับที่ร้าน (Walk-in)",

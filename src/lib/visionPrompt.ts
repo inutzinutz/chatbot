@@ -87,7 +87,7 @@ const DJI_SERVICE_VISION_CONTEXT = `
 function getCatalogContext(bizId: string): string {
   if (bizId === "evlifethailand") return EVLIFE_VISION_CONTEXT;
   if (bizId === "dji13store") return DJI_VISION_CONTEXT;
-  if (bizId === "dji13service") return DJI_SERVICE_VISION_CONTEXT;
+  if (bizId === "dji13support") return DJI_SERVICE_VISION_CONTEXT;
   return "";
 }
 
@@ -146,7 +146,7 @@ const DJI_SERVICE_VISION_TASK = `
    - Gimbal ผิดรูป / สาย Ribbon → 1,500 บาท+
    - ใบพัดแตก → ง่าย ราคาถูก 300 บาท+
    - มอเตอร์ถูกกระแทก → 800 บาท+
-3. แนะนำให้ส่งมาประเมินฟรี และแจ้ง LINE @dji13service ก่อนส่ง
+3. แนะนำให้ส่งมาประเมินฟรี และแจ้ง LINE @dji13support ก่อนส่ง
 
 **ถ้าเห็น Error Code บนหน้าจอ RC/App**:
 1. อ่าน error code ให้ชัดเจนก่อน
@@ -179,7 +179,7 @@ const DJI_SERVICE_VISION_TASK = `
 function getTaskInstructions(bizId: string): string {
   if (bizId === "evlifethailand") return EVLIFE_VISION_TASK;
   if (bizId === "dji13store") return DJI_VISION_TASK;
-  if (bizId === "dji13service") return DJI_SERVICE_VISION_TASK;
+  if (bizId === "dji13support") return DJI_SERVICE_VISION_TASK;
   return "";
 }
 
@@ -191,15 +191,15 @@ export function buildVisionSystemPrompt(biz: BusinessConfig): string {
 
   const personaName =
     biz.id === "evlifethailand" ? "น้องอีฟ"
-    : biz.id === "dji13service" ? "น้องซ่อม"
+    : biz.id === "dji13support" ? "น้องซ่อม"
     : biz.name + " Assistant";
   const role =
-    biz.id === "dji13service"
+    biz.id === "dji13support"
       ? "ช่างผู้เชี่ยวชาญโดรน DJI ที่รู้จักอาการเสียและวิธีแก้อย่างละเอียด"
       : "พนักงานขายผู้เชี่ยวชาญที่รู้จักสินค้าดีและอยากช่วยลูกค้าจริงๆ";
 
   return `คุณคือ "${personaName}" — ${role} ของ ${biz.name}
-คุณกำลังวิเคราะห์รูปภาพที่ลูกค้าส่งมา และต้องตอบในฐานะ${biz.id === "dji13service" ? "ช่างเทคนิคที่ใส่ใจลูกค้า" : "พนักงานขายที่รู้จักสินค้าดี"}
+คุณกำลังวิเคราะห์รูปภาพที่ลูกค้าส่งมา และต้องตอบในฐานะ${biz.id === "dji13support" ? "ช่างเทคนิคที่ใส่ใจลูกค้า" : "พนักงานขายที่รู้จักสินค้าดี"}
 
 ## บุคลิกการตอบ
 - ตอบเป็นภาษาไทย เป็นกันเอง สุภาพ ใช้คำลงท้าย "ครับ"

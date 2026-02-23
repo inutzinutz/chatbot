@@ -877,7 +877,7 @@ export function generatePipelineResponseWithTrace(
   // but still allow the bot to answer (non-blocking).
   let offHoursSuffix = "";
   let suppressSuffix = false;
-  if (biz.id === "evlifethailand" || biz.id === "dji13service") {
+  if (biz.id === "evlifethailand" || biz.id === "dji13support") {
     try {
       const channelModule =
         biz.id === "evlifethailand"
@@ -887,7 +887,7 @@ export function generatePipelineResponseWithTrace(
               buildOffHoursMessage: () => string;
             })
           : // eslint-disable-next-line @typescript-eslint/no-require-imports
-            (require("@/lib/dji13service/channels") as {
+            (require("@/lib/dji13support/channels") as {
               isWithinBusinessHours: () => boolean;
               buildOffHoursMessage: () => string;
             });

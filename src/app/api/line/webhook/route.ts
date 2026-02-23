@@ -29,8 +29,8 @@ export const maxDuration = 25; // seconds (Vercel Hobby limit)
 /*    EVLIFETHAILAND_LINE_CHANNEL_ACCESS_TOKEN                         */
 /*    DJI13STORE_LINE_CHANNEL_SECRET                                   */
 /*    DJI13STORE_LINE_CHANNEL_ACCESS_TOKEN                             */
-/*    DJI13SUPPORT_LINE_CHANNEL_SECRET       (businessId=dji13service) */
-/*    DJI13SUPPORT_LINE_CHANNEL_ACCESS_TOKEN (businessId=dji13service) */
+/*    DJI13SUPPORT_LINE_CHANNEL_SECRET       (businessId=dji13support) */
+/*    DJI13SUPPORT_LINE_CHANNEL_ACCESS_TOKEN (businessId=dji13support) */
 /*  Or fallback:                                                       */
 /*    LINE_CHANNEL_SECRET / LINE_CHANNEL_ACCESS_TOKEN                  */
 /* ------------------------------------------------------------------ */
@@ -40,7 +40,7 @@ export const maxDuration = 25; // seconds (Vercel Hobby limit)
 // Override map: businessId → env var prefix
 // Use this when the env var prefix differs from the auto-derived businessId prefix.
 const ENV_PREFIX_OVERRIDE: Record<string, string> = {
-  dji13service: "DJI13SUPPORT",
+  dji13support: "DJI13SUPPORT",
 };
 
 function envKey(businessId: string, suffix: string): string {

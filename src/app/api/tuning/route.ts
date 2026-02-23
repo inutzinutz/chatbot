@@ -96,7 +96,7 @@ const SEED_PROMOTIONS: Record<string, Promotion[]> = {
     { id: 3, title: "ผ่อน 0% สูงสุด 6 เดือน", description: "ผ่อน 0% สำหรับมอเตอร์ไซค์ไฟฟ้า EM ทุกรุ่น", discountType: "percent", discountValue: "0% installment", conditions: "เฉพาะบัตรเครดิตที่ร่วมรายการ", startDate: "2026-01-01", endDate: "2026-12-31", active: true },
     { id: 4, title: "บริการ On-site ฟรี กรุงเทพฯ-ปริมณฑล", description: "บริการเปลี่ยนแบตเตอรี่ถึงบ้านฟรี", discountType: "fixed", discountValue: "Free on-site", conditions: "เฉพาะพื้นที่กรุงเทพฯ และปริมณฑล", startDate: "2026-01-01", endDate: "2026-12-31", active: true },
   ],
-  dji13service: [
+  dji13support: [
     { id: 1, title: "ประเมินฟรี ไม่มีค่าใช้จ่าย", description: "ตรวจสอบและประเมินราคาซ่อมโดรน DJI ทุกรุ่นฟรี", discountType: "fixed", discountValue: "Free diagnosis", conditions: "ต้องนำโดรนมาที่ร้านหรือส่งทางไปรษณีย์", startDate: "2026-01-01", endDate: "2026-12-31", active: true },
     { id: 2, title: "Firmware Update ฟรี", description: "อัปเดต Firmware โดรน DJI และ Calibrate Gimbal/IMU/Compass ฟรีค่าบริการ", discountType: "fixed", discountValue: "Free service", conditions: "ต้องนำโดรนมาที่ร้านเท่านั้น", startDate: "2026-01-01", endDate: "2026-12-31", active: true },
     { id: 3, title: "เคลม DJI Care Refresh — ช่วยดำเนินการฟรี", description: "ให้ทีมงาน DJI 13 Service Plus ช่วยยื่นเรื่องเคลม DJI Care Refresh ฟรีค่าดำเนินการ", discountType: "fixed", discountValue: "Free claim assistance", conditions: "ลูกค้าต้องมี DJI Care Refresh ที่ยังไม่หมดอายุ", startDate: "2026-01-01", endDate: "2026-12-31", active: true },
@@ -117,7 +117,7 @@ const SEED_SHIPPING: Record<string, ShippingRule[]> = {
     { id: 3, zone: "ต่างจังหวัด", description: "จัดส่งทั่วประเทศ ฟรีสำหรับแบตเตอรี่และมอเตอร์ไซค์", fee: 0, freeAbove: null, estimatedDays: "2-5 วันทำการ", active: true },
     { id: 4, zone: "ต่างจังหวัด (On-site)", description: "บริการ On-site ต่างจังหวัด มีค่าเดินทางตามระยะทาง", fee: 500, freeAbove: 5000, estimatedDays: "นัดหมายล่วงหน้า 3-5 วัน", active: true },
   ],
-  dji13service: [
+  dji13support: [
     { id: 1, zone: "รับที่ร้าน (Walk-in)", description: "นำโดรนมาที่ร้าน DJI 13 Service Plus โดยตรง ประเมินฟรีทันที", fee: 0, freeAbove: null, estimatedDays: "รอประเมิน 1-2 ชั่วโมง | ซ่อมตามสภาพ", active: true },
     { id: 2, zone: "ส่งซ่อมทางไปรษณีย์ (ส่งมาที่ร้าน)", description: "ลูกค้าออกค่าส่งมาเอง แนะนำ Kerry / Flash Express ห่อกล่องให้แน่น", fee: 0, freeAbove: null, estimatedDays: "รอรับ 1-2 วัน | ซ่อมตามสภาพ", active: true },
     { id: 3, zone: "ส่งคืน (ค่าส่งกลับ)", description: "ค่าส่งกลับลูกค้าออก ทั่วประเทศ Kerry / Flash", fee: 60, freeAbove: 5000, estimatedDays: "1-3 วันทำการหลังส่ง", active: true },

@@ -125,7 +125,7 @@ const SEED_PROMOTIONS: Record<string, Promotion[]> = {
       active: true,
     },
   ],
-  dji13service: [
+  dji13support: [
     {
       id: 1,
       title: "ประเมินฟรี ไม่มีค่าใช้จ่าย",

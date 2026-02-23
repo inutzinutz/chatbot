@@ -67,7 +67,7 @@ const WELCOME_MESSAGES: Record<string, Message> = {
     content:
       "สวัสดีครับ! ยินดีต้อนรับสู่ **EV Life Thailand** ผู้เชี่ยวชาญแบตเตอรี่ LiFePO4 สำหรับรถ EV และตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM\n\nผมช่วยอะไรได้บ้างครับ?\n- แบตเตอรี่ 12V LiFePO4 สำหรับรถ EV\n- มอเตอร์ไซค์ไฟฟ้า EM\n- บริการ On-site ถึงบ้าน\n- สอบถามราคา/โปรโมชั่น\n- รับประกัน 4 ปี\n\nลองพิมพ์รุ่นรถ เช่น 'BYD Atto 3' หรือ 'EM Milano' ได้เลย\nหรือ **แนบรูปภาพ/PDF** เพื่อให้ AI วิเคราะห์ได้เลยครับ!",
   },
-  dji13service: {
+  dji13support: {
     id: "welcome",
     role: "assistant",
     content:

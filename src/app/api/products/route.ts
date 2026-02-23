@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { products as dji13products } from "@/lib/products";
 import { products as evlifeProducts } from "@/lib/evlife/products";
-import { products as dji13serviceProducts } from "@/lib/dji13service/products";
+import { products as dji13serviceProducts } from "@/lib/dji13support/products";
 
 function getProductsByBusiness(businessId: string) {
   switch (businessId) {
     case "evlifethailand":
       return evlifeProducts;
-    case "dji13service":
+    case "dji13support":
       return dji13serviceProducts;
     default:
       return dji13products;
