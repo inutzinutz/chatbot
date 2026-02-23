@@ -57,7 +57,7 @@ export function verifyCredentials(
   const isSuperAdmin = match.businessId === "*";
 
   // Super admin can access all businesses
-  const allBusinessIds = ["dji13store", "evlifethailand", "dji13support"];
+  const allBusinessIds = ["dji13store", "evlifethailand", "dji13support", "dji13service"];
   const allowedBusinessIds = isSuperAdmin
     ? allBusinessIds
     : [match.businessId];
