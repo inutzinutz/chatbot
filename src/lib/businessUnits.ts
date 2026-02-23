@@ -57,7 +57,7 @@ import {
   buildDiscontinuedResponse as evlifeBuildDiscontinuedResponse,
 } from "@/lib/evlife/intentPolicies";
 
-// DJI 13 Service Plus data
+// Support @ DJI 13 Store data
 import {
   products as svcProducts,
   searchProducts as svcSearchProducts,
@@ -326,13 +326,13 @@ const evlifeConfig: BusinessConfig = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  DJI 13 Service Plus config                                        */
+/*  Support @ DJI 13 Store config                                     */
 /* ------------------------------------------------------------------ */
 
 const dji13serviceConfig: BusinessConfig = {
   id: "dji13support",
-  name: "DJI 13 Service Plus",
-  shortName: "13 Service",
+  name: "Support @ DJI 13 Store",
+  shortName: "13 Support",
   description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI",
   primaryColor: "#ef4444",
 
@@ -371,7 +371,7 @@ const dji13serviceConfig: BusinessConfig = {
   buildContactChannelsResponse: svcBuildContactChannelsResponse,
   buildDiscontinuedResponse: svcBuildDiscontinuedResponse,
 
-  systemPromptIdentity: `คุณคือ "น้องซ่อม" — ผู้ช่วย AI ของ DJI 13 Service Plus ศูนย์ซ่อมและบริการโดรน DJI ครบวงจร
+  systemPromptIdentity: `คุณคือ "น้องซ่อม" — ผู้ช่วย AI ของ Support @ DJI 13 Store ศูนย์ซ่อมและบริการโดรน DJI ครบวงจร
 คุณมีความเชี่ยวชาญเทียบเท่าช่างระดับ Senior ที่รู้จักโดรน DJI ทุกรุ่นอย่างละเอียด ทั้งด้านกลไก ไฟฟ้า และซอฟต์แวร์
 
 ## บุคลิก (Persona)
@@ -392,7 +392,7 @@ const dji13serviceConfig: BusinessConfig = {
   orderChannelsText: "- LINE: @dji13support (แนะนำ)\n- Facebook: DJI 13 Store\n- โทร: 065-694-6155",
 
   defaultFallbackMessage:
-    "ขอบคุณที่ติดต่อ **DJI 13 Service Plus** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- ส่งซ่อมโดรน DJI ทุกรุ่น\n- เคลม DJI Care Refresh\n- กรณี Flyaway / เปียกน้ำ\n- ปัญหากิมบอล / แบตเตอรี่ / สัญญาณ\n- Error code & คู่มือช่างวินิจฉัย\n- ราคาซ่อมและอะไหล่\n\nลองพิมพ์ปัญหา เช่น 'กิมบอลสั่น' หรือ 'error code 40008' ได้เลยครับ!",
+    "ขอบคุณที่ติดต่อ **Support @ DJI 13 Store** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- ส่งซ่อมโดรน DJI ทุกรุ่น\n- เคลม DJI Care Refresh\n- กรณี Flyaway / เปียกน้ำ\n- ปัญหากิมบอล / แบตเตอรี่ / สัญญาณ\n- Error code & คู่มือช่างวินิจฉัย\n- ราคาซ่อมและอะไหล่\n\nลองพิมพ์ปัญหา เช่น 'กิมบอลสั่น' หรือ 'error code 40008' ได้เลยครับ!",
 
   categoryChecks: [
     { keys: ["ซ่อม", "repair", "เสีย", "พัง"], category: "ซ่อม", label: "บริการซ่อม" },
@@ -428,7 +428,7 @@ export const businessUnits: Record<string, BusinessConfig> = {
 export const businessUnitList = [
   { id: "dji13store", name: "DJI 13 STORE", shortName: "DJI 13", description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ", primaryColor: "#3b82f6", icon: "drone" },
   { id: "evlifethailand", name: "EV Life Thailand", shortName: "EV Life", description: "แบตเตอรี่ LiFePO4 & มอเตอร์ไซค์ไฟฟ้า EM", primaryColor: "#f97316", icon: "battery" },
-  { id: "dji13support", name: "DJI 13 Service Plus", shortName: "13 Service", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" },
+  { id: "dji13support", name: "Support @ DJI 13 Store", shortName: "13 Support", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" },
 ] as const;
 
 export const DEFAULT_BUSINESS_ID = "dji13store";

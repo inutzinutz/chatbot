@@ -151,7 +151,7 @@ const SEED_PROMOTIONS: Record<string, Promotion[]> = {
     {
       id: 3,
       title: "เคลม DJI Care Refresh — ช่วยดำเนินการฟรี",
-      description: "ให้ทีมงาน DJI 13 Service Plus ช่วยยื่นเรื่องเคลม DJI Care Refresh ฟรีค่าดำเนินการ",
+      description: "ให้ทีมงาน Support @ DJI 13 Store ช่วยยื่นเรื่องเคลม DJI Care Refresh ฟรีค่าดำเนินการ",
       discountType: "fixed",
       discountValue: "Free claim assistance",
       conditions: "ลูกค้าต้องมี DJI Care Refresh ที่ยังไม่หมดอายุ",

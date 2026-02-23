@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  DJI 13 Service Plus — Channel Configuration                       */
+/*  Support @ DJI 13 Store — Channel Configuration                    */
 /* ------------------------------------------------------------------ */
 
 import type { ChannelInfo, ChannelType, ChannelCommonSettings } from "@/lib/channels";
@@ -18,7 +18,7 @@ const DEFAULT_SCHEDULE = [
 
 function defaultCommon(): ChannelCommonSettings {
   return {
-    welcomeMessage: "สวัสดีครับ! ยินดีต้อนรับสู่ DJI 13 Service Plus\nสอบถามเรื่องซ่อม เคลม DJI Care Refresh หรือปัญหาโดรน DJI ได้เลยครับ",
+    welcomeMessage: "สวัสดีครับ! ยินดีต้อนรับสู่ Support @ DJI 13 Store\nสอบถามเรื่องซ่อม เคลม DJI Care Refresh หรือปัญหาโดรน DJI ได้เลยครับ",
     autoReply: true,
     responseDelaySec: 0,
     businessHours: {
@@ -66,10 +66,10 @@ export const channels: ChannelInfo[] = [
   {
     type: "LINE",
     enabled: true,
-    name: "DJI 13 Service Plus",
+    name: "Support @ DJI 13 Store",
     common: {
       ...defaultCommon(),
-      welcomeMessage: "สวัสดีครับ! ยินดีต้อนรับสู่ DJI 13 Service Plus\nแจ้งปัญหาโดรน DJI ได้เลยครับ — ซ่อม เคลม Flyaway เปียกน้ำ ทุกเรื่องครับ",
+      welcomeMessage: "สวัสดีครับ! ยินดีต้อนรับสู่ Support @ DJI 13 Store\nแจ้งปัญหาโดรน DJI ได้เลยครับ — ซ่อม เคลม Flyaway เปียกน้ำ ทุกเรื่องครับ",
     },
     line: {
       channelId: "",
@@ -94,7 +94,7 @@ export function getChannel(type: ChannelType): ChannelInfo | undefined {
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /**
- * Check if current Bangkok time is within DJI 13 Service Plus business hours.
+ * Check if current Bangkok time is within Support @ DJI 13 Store business hours.
  * Mon–Fri 09:00–18:00, Sat 09:00–16:00, Sun closed.
  */
 export function isWithinBusinessHours(): boolean {
@@ -116,7 +116,7 @@ export function isWithinBusinessHours(): boolean {
 }
 
 /**
- * Build the off-hours message shown to customers of DJI 13 Service Plus.
+ * Build the off-hours message shown to customers of Support @ DJI 13 Store.
  */
 export function buildOffHoursMessage(): string {
   const bkk = new Date(

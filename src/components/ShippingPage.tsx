@@ -106,7 +106,7 @@ const SEED_SHIPPING: Record<string, ShippingRule[]> = {
     {
       id: 1,
       zone: "รับที่ร้าน (Walk-in)",
-      description: "นำโดรนมาที่ร้าน DJI 13 Service Plus โดยตรง ประเมินฟรีทันที",
+      description: "นำโดรนมาที่ร้าน Support @ DJI 13 Store โดยตรง ประเมินฟรีทันที",
       fee: 0,
       freeAbove: null,
       estimatedDays: "รอประเมิน 1-2 ชั่วโมง | ซ่อมตามสภาพ",

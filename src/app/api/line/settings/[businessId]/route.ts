@@ -26,7 +26,7 @@ function defaultSettings(businessId: string): LineChannelSettings {
       biz.id === "evlifethailand"
         ? "สวัสดีครับ! ยินดีต้อนรับสู่ EV Life Thailand\nสอบถามเรื่องแบตเตอรี่ LiFePO4 หรือมอเตอร์ไซค์ไฟฟ้า EM ได้เลยครับ"
         : biz.id === "dji13support"
-        ? "สวัสดีครับ! ยินดีต้อนรับสู่ DJI 13 Service Plus\nแจ้งปัญหาโดรน DJI ได้เลยครับ — ซ่อม เคลม Flyaway เปียกน้ำ ทุกเรื่องครับ"
+        ? "สวัสดีครับ! ยินดีต้อนรับสู่ Support @ DJI 13 Store\nแจ้งปัญหาโดรน DJI ได้เลยครับ — ซ่อม เคลม Flyaway เปียกน้ำ ทุกเรื่องครับ"
         : `สวัสดีครับ! ยินดีต้อนรับสู่ ${biz.name}\nพิมพ์สอบถามได้เลยครับ`,
     autoReply: true,
     responseDelaySec: 5,

@@ -79,14 +79,14 @@ const EVLIFE_REPLIES: QuickReply[] = [
   { label: "นัดติดตั้ง",        message: "อยากนัดเปลี่ยนแบตเตอรี่ ต้องทำอย่างไร",                 icon: <MapPin className="h-3 w-3" />,        category: "บริการ" },
 ];
 
-// ── DJI 13 Service Plus quick replies ──────────────────────────────
+// ── Support @ DJI 13 Store quick replies ───────────────────────────
 const SVC_CATEGORIES = ["ยอดนิยม", "ซ่อม/เคลม", "ฉุกเฉิน", "ข้อมูล"];
 
 const SVC_REPLIES: QuickReply[] = [
   { label: "ราคาซ่อม",          message: "ค่าซ่อมโดรน DJI เริ่มต้นเท่าไหร่",                       icon: <Tags className="h-3 w-3" />,          category: "ยอดนิยม" },
   { label: "ส่งซ่อมอย่างไร",    message: "อยากส่งซ่อมโดรน DJI ต้องทำอย่างไร",                      icon: <Send className="h-3 w-3" />,          category: "ยอดนิยม" },
   { label: "เคลม Care Refresh",  message: "อยากเคลม DJI Care Refresh ต้องเตรียมอะไรบ้าง",            icon: <Shield className="h-3 w-3" />,        category: "ยอดนิยม" },
-  { label: "ติดต่อช่าง",        message: "ขอช่องทางติดต่อ DJI 13 Service Plus",                    icon: <Phone className="h-3 w-3" />,         category: "ยอดนิยม" },
+  { label: "ติดต่อช่าง",        message: "ขอช่องทางติดต่อ Support @ DJI 13 Store",                    icon: <Phone className="h-3 w-3" />,         category: "ยอดนิยม" },
 
   { label: "กิมบอลเสีย",        message: "กิมบอลโดรน DJI สั่น/ค้าง ต้องซ่อมไหม ราคาเท่าไหร่",    icon: <Wrench className="h-3 w-3" />,        category: "ซ่อม/เคลม" },
   { label: "เปลี่ยนมอเตอร์",    message: "ต้องการเปลี่ยนมอเตอร์โดรน ราคาเท่าไหร่",                icon: <Zap className="h-3 w-3" />,           category: "ซ่อม/เคลม" },

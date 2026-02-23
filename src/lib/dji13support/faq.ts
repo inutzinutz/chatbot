@@ -6,8 +6,8 @@ export interface FAQItem {
 
 export const faqData: FAQItem[] = [
   {
-    question: "DJI 13 Service Plus คืออะไร",
-    answer: "DJI 13 Service Plus เป็นศูนย์บริการซ่อมและเคลมโดรน DJI อย่างเป็นทางการ ภายใต้ DJI 13 STORE รับซ่อมโดรน DJI ทุกรุ่น ดำเนินการเคลม DJI Care Refresh มีอะไหล่แท้ DJI และทีมช่างผู้เชี่ยวชาญโดยเฉพาะ",
+    question: "Support @ DJI 13 Store คืออะไร",
+    answer: "Support @ DJI 13 Store เป็นศูนย์บริการซ่อมและเคลมโดรน DJI อย่างเป็นทางการ ภายใต้ DJI 13 STORE รับซ่อมโดรน DJI ทุกรุ่น ดำเนินการเคลม DJI Care Refresh มีอะไหล่แท้ DJI และทีมช่างผู้เชี่ยวชาญโดยเฉพาะ",
     category: "ทั่วไป",
   },
   {

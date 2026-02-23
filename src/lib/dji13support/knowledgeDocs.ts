@@ -45,7 +45,7 @@ export const knowledgeDocs: KnowledgeDoc[] = [
     triggers: ["care refresh", "dji care", "เคลม care", "เคลมประกัน", "ยื่นเคลม", "care plan"],
     tags: ["care refresh", "claim", "warranty"],
     content:
-      "DJI Care Refresh — ขั้นตอนการเคลม\n\nประเภทการเคลม:\n- Physical Damage: ชน แตก เสียหายจากอุบัติเหตุ\n- Water Damage: ตกน้ำ เปียกน้ำ\n- Flyaway (Care Refresh Plus เท่านั้น): โดรนสูญหาย\n\nเอกสารที่ต้องใช้:\n1. หมายเลข Serial Number โดรน\n2. หลักฐาน DJI Care Refresh ที่ยังไม่หมดอายุ\n3. รูปภาพ/วิดีโอความเสียหาย\n4. Flight Log (กรณี Flyaway บังคับ)\n\nขั้นตอน:\n1. แจ้งทีมงาน DJI 13 Service Plus\n2. ส่งเอกสารครบ\n3. ทีมยื่นเรื่องต่อ DJI Service Center\n4. รับโดรนเครื่องใหม่หรือซ่อมกลับ (ขึ้นอยู่กับ Case)\n\nหมายเหตุ:\n- Care Refresh Standard: เคลมได้ 2 ครั้ง/ปี\n- Care Refresh Plus: เคลมได้ 2 ครั้ง/ปี รวม Flyaway 1 ครั้ง/ปี\n- มีค่า Deductible (ค่าใช้จ่ายส่วนต่าง) ตามรุ่น",
+      "DJI Care Refresh — ขั้นตอนการเคลม\n\nประเภทการเคลม:\n- Physical Damage: ชน แตก เสียหายจากอุบัติเหตุ\n- Water Damage: ตกน้ำ เปียกน้ำ\n- Flyaway (Care Refresh Plus เท่านั้น): โดรนสูญหาย\n\nเอกสารที่ต้องใช้:\n1. หมายเลข Serial Number โดรน\n2. หลักฐาน DJI Care Refresh ที่ยังไม่หมดอายุ\n3. รูปภาพ/วิดีโอความเสียหาย\n4. Flight Log (กรณี Flyaway บังคับ)\n\nขั้นตอน:\n1. แจ้งทีมงาน Support @ DJI 13 Store\n2. ส่งเอกสารครบ\n3. ทีมยื่นเรื่องต่อ DJI Service Center\n4. รับโดรนเครื่องใหม่หรือซ่อมกลับ (ขึ้นอยู่กับ Case)\n\nหมายเหตุ:\n- Care Refresh Standard: เคลมได้ 2 ครั้ง/ปี\n- Care Refresh Plus: เคลมได้ 2 ครั้ง/ปี รวม Flyaway 1 ครั้ง/ปี\n- มีค่า Deductible (ค่าใช้จ่ายส่วนต่าง) ตามรุ่น",
   },
   {
     id: 206,

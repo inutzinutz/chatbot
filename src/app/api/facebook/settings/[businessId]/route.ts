@@ -25,7 +25,7 @@ export interface FacebookChannelSettings {
 function defaultSettings(businessId: string): FacebookChannelSettings {
   const welcomes: Record<string, string> = {
     evlifethailand: "สวัสดีครับ! ยินดีต้อนรับสู่ EV Life Thailand\nสอบถามเรื่องแบตเตอรี่ LiFePO4 หรือมอเตอร์ไซค์ไฟฟ้า EM ได้เลยครับ",
-    dji13support: "สวัสดีครับ! ยินดีต้อนรับสู่ DJI 13 Service Plus\nแจ้งปัญหาโดรน DJI ได้เลยครับ",
+    dji13support: "สวัสดีครับ! ยินดีต้อนรับสู่ Support @ DJI 13 Store\nแจ้งปัญหาโดรน DJI ได้เลยครับ",
     dji13store: "สวัสดีครับ! ยินดีต้อนรับสู่ DJI 13 STORE\nสอบถามเรื่องโดรน DJI ได้เลยครับ",
   };
   return {

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  DJI 13 Service Plus — Service & Repair Products/Services Catalog   */
+/*  Support @ DJI 13 Store — Service & Repair Products/Services Catalog */
 /* ------------------------------------------------------------------ */
 
 export interface Product {
