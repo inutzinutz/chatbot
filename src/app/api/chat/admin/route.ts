@@ -709,6 +709,151 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, sent: selected.length, results });
     }
 
+    // ── Send Media (image / video / file) to customer ──
+    case "sendMedia": {
+      if (!userId) {
+        return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      }
+      const mediaUrl = body.mediaUrl as string;
+      const mediaType = (body.mediaType as string) || "image"; // "image" | "video" | "file"
+      const fileName = (body.fileName as string) || "";
+      const mimeType = (body.mimeType as string) || "";
+
+      if (!mediaUrl) {
+        return NextResponse.json({ error: "Missing mediaUrl" }, { status: 400 });
+      }
+
+      // Store message in chat history
+      const stored = await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: fileName ? `[ไฟล์แนบ] ${fileName}` : `[${mediaType === "image" ? "รูปภาพ" : mediaType === "video" ? "วีดีโอ" : "ไฟล์"}]`,
+        timestamp: Date.now(),
+        sentBy,
+        imageUrl: mediaType === "image" ? mediaUrl : undefined,
+        videoUrl: mediaType === "video" ? mediaUrl : undefined,
+        fileUrl: mediaType === "file" ? mediaUrl : undefined,
+        fileName: fileName || undefined,
+        fileMimeType: mimeType || undefined,
+      });
+
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "send",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: `[${mediaType}] ${fileName || mediaUrl.slice(0, 60)}`,
+        timestamp: Date.now(),
+      });
+
+      const isLineUser = userId.startsWith("U");
+      const accessToken = getLineAccessToken(businessId);
+      const fbToken = getFbAccessToken(businessId);
+
+      // ── Send via LINE Push ──
+      if (accessToken) {
+        try {
+          let lineMessage: object;
+
+          if (mediaType === "image") {
+            lineMessage = {
+              type: "image",
+              originalContentUrl: mediaUrl,
+              previewImageUrl: mediaUrl,
+            };
+          } else if (mediaType === "video") {
+            lineMessage = {
+              type: "video",
+              originalContentUrl: mediaUrl,
+              previewImageUrl: mediaUrl, // Cloudinary auto-generates thumbnail
+            };
+          } else {
+            // For files/PDFs — send as text with link (LINE doesn't support raw file push)
+            lineMessage = {
+              type: "text",
+              text: `📎 ไฟล์แนบ: ${fileName || "ไฟล์"}\n${mediaUrl}`,
+            };
+          }
+
+          const pushRes = await fetch("https://api.line.me/v2/bot/message/push", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ to: userId, messages: [lineMessage] }),
+          });
+
+          if (!pushRes.ok) {
+            const errBody = await pushRes.text().catch(() => "");
+            console.error(`[Admin/sendMedia] LINE push failed: ${pushRes.status} ${errBody}`);
+          }
+        } catch (err) {
+          console.error("[Admin/sendMedia] LINE push error:", err);
+        }
+      }
+
+      // ── Send via Facebook Messenger (non-LINE users) ──
+      if (!isLineUser && fbToken) {
+        try {
+          let fbMessage: object;
+
+          if (mediaType === "image") {
+            fbMessage = {
+              attachment: {
+                type: "image",
+                payload: { url: mediaUrl, is_reusable: true },
+              },
+            };
+          } else if (mediaType === "video") {
+            fbMessage = {
+              attachment: {
+                type: "video",
+                payload: { url: mediaUrl, is_reusable: true },
+              },
+            };
+          } else {
+            fbMessage = {
+              attachment: {
+                type: "file",
+                payload: { url: mediaUrl, is_reusable: true },
+              },
+            };
+          }
+
+          const fbRes = await fetch(
+            `https://graph.facebook.com/v19.0/me/messages?access_token=${fbToken}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recipient: { id: userId }, message: fbMessage }),
+            }
+          );
+
+          if (!fbRes.ok) {
+            const errBody = await fbRes.text().catch(() => "");
+            console.error(`[Admin/sendMedia] FB send failed: ${fbRes.status} ${errBody}`);
+          }
+        } catch (err) {
+          console.error("[Admin/sendMedia] FB send error:", err);
+        }
+      }
+
+      // Auto-disable bot when admin sends media
+      const wasEnabled = await chatStore.isBotEnabled(businessId, userId);
+      if (wasEnabled) {
+        await chatStore.toggleBot(businessId, userId, false);
+        await chatStore.addMessage(businessId, userId, {
+          role: "admin",
+          content: `[ระบบ] บอทหยุดตอบอัตโนมัติ — ${sentBy} กำลังดูแลอยู่`,
+          timestamp: Date.now(),
+          sentBy,
+        });
+      }
+
+      return NextResponse.json({ success: true, messageId: stored.id });
+    }
+
     default:
       return NextResponse.json(
         { error: `Unknown action: ${action}` },

@@ -68,6 +68,10 @@ export interface ChatMessage {
    * LINE CDN URLs expire in 24h — prefer storing base64 data URL for persistence.
    */
   imageUrl?: string;
+  /** For video messages: https URL (e.g. Cloudinary) */
+  videoUrl?: string;
+  /** For generic file attachments: https URL */
+  fileUrl?: string;
   /** Original file name for file/PDF messages */
   fileName?: string;
   /** MIME type of the attached file */

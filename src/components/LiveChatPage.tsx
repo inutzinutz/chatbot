@@ -26,6 +26,10 @@ import {
   FileText,
   ZoomIn,
   Package,
+  Paperclip,
+  Video,
+  File,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CRMPanel from "@/components/CRMPanel";
@@ -141,6 +145,13 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [newTemplateTitle, setNewTemplateTitle] = useState("");
   const [newTemplateText, setNewTemplateText] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // ── Media Attachment state ──
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<"image" | "video" | "file">("image");
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
   // ── Carousel / Send Product Card state ──
   const [showCarouselModal, setShowCarouselModal] = useState(false);
@@ -688,6 +699,92 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
       setActiveFollowup(null);
       await fetchFollowups();
     } catch {}
+  };
+
+  // ── Media: handle file selection ──
+  const handleMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Determine type
+    let type: "image" | "video" | "file" = "file";
+    if (file.type.startsWith("image/")) type = "image";
+    else if (file.type.startsWith("video/")) type = "video";
+    setMediaType(type);
+    setMediaFile(file);
+
+    // Create preview URL
+    if (type === "image" || type === "video") {
+      const url = URL.createObjectURL(file);
+      setMediaPreview(url);
+    } else {
+      setMediaPreview(null);
+    }
+
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+  };
+
+  const clearMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    if (mediaInputRef.current) mediaInputRef.current.value = "";
+  };
+
+  // ── Media: upload to Cloudinary then send ──
+  const handleSendMedia = async () => {
+    if (!mediaFile || !activeUserId || uploadingMedia) return;
+    setUploadingMedia(true);
+
+    try {
+      // Step 1: Upload to Cloudinary via /api/upload
+      const form = new FormData();
+      form.append("file", mediaFile);
+
+      const uploadRes = await fetch(
+        `/api/upload?businessId=${encodeURIComponent(businessId)}`,
+        { method: "POST", body: form }
+      );
+
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({}));
+        alert(`อัปโหลดไม่สำเร็จ: ${(err as { error?: string }).error || uploadRes.status}`);
+        setUploadingMedia(false);
+        return;
+      }
+
+      const { url, resourceType, fileName: uploadedName } = await uploadRes.json() as {
+        url: string;
+        resourceType: string;
+        fileName: string;
+      };
+      const resolvedType: "image" | "video" | "file" =
+        resourceType === "image" ? "image" : resourceType === "video" ? "video" : "file";
+
+      // Step 2: Send via admin API
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sendMedia",
+          businessId,
+          userId: activeUserId,
+          mediaUrl: url,
+          mediaType: resolvedType,
+          fileName: uploadedName || mediaFile.name,
+          mimeType: mediaFile.type,
+        }),
+      });
+
+      clearMedia();
+      await fetchMessages();
+      await fetchConversations();
+    } catch (err) {
+      console.error("[sendMedia]", err);
+      alert("เกิดข้อผิดพลาดในการส่งไฟล์");
+    }
+
+    setUploadingMedia(false);
   };
 
   // ── Carousel: load product list from API ──
@@ -1535,7 +1632,7 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                           )}
                         </div>
                       )}
-                      {/* Message content — image, file, or text */}
+                      {/* Message content — image / video / file / text */}
                       {msg.imageUrl ? (
                         <a
                           href={msg.imageUrl}
@@ -1557,6 +1654,30 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                           {msg.fileName && (
                             <p className="text-[10px] mt-1 text-gray-400">{msg.fileName}</p>
                           )}
+                        </a>
+                      ) : msg.videoUrl ? (
+                        <div className="space-y-1">
+                          <video
+                            src={msg.videoUrl}
+                            controls
+                            className="max-h-56 max-w-full rounded-xl block border border-black/10"
+                          />
+                          {msg.fileName && (
+                            <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                              <Video className="h-3 w-3" />
+                              {msg.fileName}
+                            </p>
+                          )}
+                        </div>
+                      ) : msg.fileUrl ? (
+                        <a
+                          href={msg.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 py-0.5 hover:underline"
+                        >
+                          <File className="h-4 w-4 shrink-0 text-gray-400" />
+                          <span className="text-sm break-all">{msg.fileName || "ดาวน์โหลดไฟล์"}</span>
                         </a>
                       ) : msg.fileName && !msg.imageUrl ? (
                         <div className="flex items-center gap-2 py-0.5">
@@ -1600,6 +1721,70 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
 
             {/* Input Area */}
             <div className="px-4 py-3 border-t border-gray-200 bg-white">
+              {/* Media Preview Bar */}
+              {mediaFile && (
+                <div className="mb-2 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                  {mediaType === "image" && mediaPreview && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={mediaPreview}
+                      alt="preview"
+                      className="h-14 w-14 rounded-lg object-cover shrink-0 border border-gray-200"
+                    />
+                  )}
+                  {mediaType === "video" && mediaPreview && (
+                    <video
+                      src={mediaPreview}
+                      className="h-14 w-20 rounded-lg object-cover shrink-0 border border-gray-200"
+                      muted
+                    />
+                  )}
+                  {mediaType === "file" && (
+                    <div className="h-14 w-14 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+                      <File className="h-6 w-6 text-indigo-400" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-700 truncate">{mediaFile.name}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      {mediaType === "image" ? "รูปภาพ" : mediaType === "video" ? "วีดีโอ" : "ไฟล์"}
+                      {" · "}{(mediaFile.size / 1024).toFixed(0)} KB
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleSendMedia}
+                      disabled={uploadingMedia}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                        uploadingMedia
+                          ? "bg-gray-100 text-gray-400 cursor-wait"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700"
+                      )}
+                    >
+                      {uploadingMedia ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>กำลังส่ง...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-3.5 w-3.5" />
+                          <span>ส่ง</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={clearMedia}
+                      disabled={uploadingMedia}
+                      className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Quick Reply Template Picker */}
               {showTemplatePicker && templates.length > 0 && (
                 <div className="mb-2 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
@@ -1638,6 +1823,15 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                 </div>
               )}
 
+              {/* Hidden file input */}
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                className="hidden"
+                onChange={handleMediaSelect}
+              />
+
               <div className="flex items-center gap-2">
                 {/* Template shortcut button */}
                 <button
@@ -1652,6 +1846,22 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                 >
                   <Zap className="h-4 w-4" />
                 </button>
+
+                {/* Attach media button */}
+                <button
+                  onClick={() => mediaInputRef.current?.click()}
+                  title="แนบรูปภาพ / วีดีโอ / ไฟล์"
+                  disabled={uploadingMedia}
+                  className={cn(
+                    "p-2 rounded-lg border transition-all shrink-0",
+                    mediaFile
+                      ? "bg-blue-100 border-blue-300 text-blue-700"
+                      : "border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-300"
+                  )}
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
+
                 <input
                   ref={inputRef}
                   type="text"
