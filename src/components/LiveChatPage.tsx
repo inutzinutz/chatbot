@@ -163,6 +163,8 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
 
   // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef<number>(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const sseConvRef = useRef<EventSource | null>(null);
   const sseMsgRef = useRef<EventSource | null>(null);
@@ -304,6 +306,9 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
       return;
     }
 
+    // Reset message count so switching conversations always scrolls to bottom
+    prevMessageCountRef.current = 0;
+
     fetchMessages();
 
     const connectMsgSSE = () => {
@@ -344,8 +349,34 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   }, [activeUserId, businessId]);
 
   // ── Auto-scroll to bottom on new messages ──
+  // Only scroll when:
+  //   1. A new message was actually added (count increased), AND
+  //   2. User is already near the bottom (within 150px) OR the newest message
+  //      is from bot/admin (so user sees the reply without losing their place)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = chatContainerRef.current;
+    const newCount = messages.length;
+    const prevCount = prevMessageCountRef.current;
+    prevMessageCountRef.current = newCount;
+
+    // No new messages added — don't scroll (e.g. SSE re-sends same list, mark-read update)
+    if (newCount <= prevCount) return;
+
+    if (!container) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom < 150;
+
+    // Check if the newest message is from bot or admin (not from the customer themselves)
+    const newestMsg = messages[messages.length - 1];
+    const isIncomingMsg = newestMsg && newestMsg.role !== "customer";
+
+    if (isNearBottom || isIncomingMsg) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   // ── Debounced full-text search ──
@@ -1528,7 +1559,7 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-gray-50/50">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-gray-50/50">
               {messages.length === 0 && (
                 <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                   No messages yet
