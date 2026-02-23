@@ -52,6 +52,26 @@ export async function isUserRateLimited(
 }
 
 /**
+ * Idempotency guard for LINE replyTokens.
+ * LINE may retry webhooks — this prevents processing the same event twice.
+ * Returns true if the token was ALREADY processed (skip it).
+ * Returns false if this is the FIRST time we see this token (process it).
+ *
+ * TTL = 5 minutes (LINE replyToken expires in 1 minute, so 5 min is safe)
+ */
+export async function isReplyTokenProcessed(replyToken: string): Promise<boolean> {
+  const redis = g.__redis_rl;
+  if (!redis) return false; // fail open: no redis → allow processing
+  try {
+    // SET key 1 NX EX 300 — returns "OK" if set (first time), null if already exists
+    const result = await redis.set(`rtok:${replyToken}`, "1", "EX", 300, "NX");
+    return result === null; // null = key already existed = already processed
+  } catch {
+    return false; // fail open on Redis error
+  }
+}
+
+/**
  * Get current message count for a userId in the current window.
  * Useful for returning rate limit headers.
  */

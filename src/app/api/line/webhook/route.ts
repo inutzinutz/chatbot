@@ -14,7 +14,7 @@ import {
 } from "@/lib/visionPrompt";
 import { logTokenUsage } from "@/lib/tokenTracker";
 import { autoExtractCRM } from "@/lib/crmExtract";
-import { isUserRateLimited } from "@/lib/rateLimit";
+import { isUserRateLimited, isReplyTokenProcessed } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -588,6 +588,17 @@ export async function POST(req: NextRequest) {
 
     const msgType = event.message?.type || "";
     const replyToken = event.replyToken;
+
+    // ── Idempotency: skip if this replyToken was already processed ──
+    // LINE may retry webhook delivery — guard against duplicate bot replies
+    if (replyToken) {
+      const alreadyDone = await isReplyTokenProcessed(replyToken);
+      if (alreadyDone) {
+        diag.skipped = "duplicate_reply_token";
+        results.push(diag);
+        continue;
+      }
+    }
 
     // ── Handle sticker / audio / location — polite acknowledgement ──
     if (["sticker", "audio", "location"].includes(msgType)) {

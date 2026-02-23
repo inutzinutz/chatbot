@@ -232,9 +232,26 @@ function extractConversationContext(
   // ── Pass 2: determine activeProduct ──
   // Priority order:
   //   1. Product mentioned in the CURRENT user message
-  //   2. Product last explicitly discussed by the assistant
+  //   2. Product last explicitly discussed by the assistant (cleared if topic changes)
   //   3. Most recently seen product in the last 10 messages
   const currentLower = currentMessage.toLowerCase();
+
+  // Category-switch signals: if current message clearly switches topic category,
+  // reset lastAssistantProduct so we don't carry stale context forward.
+  const BATTERY_CATEGORY_SIGNALS = ["แบต", "battery", "lifepo4", "lfp", "well done", "welldone", "ev battery", "byd", "tesla", "volvo", "mg ", "ora ", "neta "];
+  const MOTO_CATEGORY_SIGNALS = ["มอไซ", "มอเตอร์ไซ", "motorcycle", "em ", "legend", "milano", "owen", "enzo", "qarez", "ebike", "e-bike"];
+
+  const hasBatterySignal = BATTERY_CATEGORY_SIGNALS.some((s) => currentLower.includes(s));
+  const hasMotoSignal = MOTO_CATEGORY_SIGNALS.some((s) => currentLower.includes(s));
+
+  // If the last assistant product was from a different category than what the user is now asking,
+  // clear it so L5 context-fallback doesn't answer about the wrong product.
+  if (lastAssistantProduct && hasBatterySignal && lastAssistantProduct.category !== "แบตเตอรี่ EV") {
+    lastAssistantProduct = null;
+  }
+  if (lastAssistantProduct && hasMotoSignal && lastAssistantProduct.category !== "มอเตอร์ไซค์ไฟฟ้า EM") {
+    lastAssistantProduct = null;
+  }
 
   let activeProduct: Product | null = null;
 
@@ -923,9 +940,16 @@ export function generatePipelineResponseWithTrace(
         return cancelResult;
       }
       case "greeting": {
-        // Return template + clarifyOptions for web chat chip buttons
-        const greetResult = finishTrace(intent.responseTemplate);
-        greetResult.clarifyOptions = ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
+        // If there is prior conversation history, use a short acknowledgement
+        // instead of the full welcome message to avoid repeating it every time
+        const isReturningGreet = allMessages.length > 2;
+        const greetText = isReturningGreet
+          ? "สวัสดีครับ! มีอะไรให้ช่วยเพิ่มเติมไหมครับ? 😊"
+          : intent.responseTemplate;
+        const greetResult = finishTrace(greetText);
+        greetResult.clarifyOptions = isReturningGreet
+          ? []
+          : ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
         addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
         finalLayer = 6;
         finalLayerName = `Intent: ${intent.name}`;
@@ -1023,9 +1047,43 @@ export function generatePipelineResponseWithTrace(
 
         // ── Single model or catalog ──
         const specificModel = findSpecificProductInCategory(lower, emProducts, "EM ");
+
+        // Before committing to one model, check if the keyword could match MULTIPLE models
+        // e.g. "EM LEGEND" matches both "EM Legend G.2" and "EM Legend Pro"
         if (specificModel) {
-          intentResponse = buildDetailedEMResponse(specificModel, biz);
-          intentDetails.matchedProducts = [specificModel.name];
+          const ambiguousMatches = emProducts.filter((p) => {
+            const nl = p.name.toLowerCase();
+            const modelName = nl.startsWith("em ") ? nl.slice(3) : nl;
+            // Check if any tag or sub-word in the product name matches the user query
+            return (
+              p.id !== specificModel.id &&
+              (nl.includes(lower.replace(/\s+/g, " ").trim()) ||
+                p.tags.some(
+                  (tag) =>
+                    tag.length > 2 &&
+                    !GENERIC_PRODUCT_TAGS.has(tag.toLowerCase()) &&
+                    lower.includes(tag.toLowerCase()) &&
+                    specificModel.tags.some((st) => st.toLowerCase() === tag.toLowerCase())
+                ) ||
+                // Both share a common sub-word from user message (e.g. "legend")
+                modelName.split(" ").some(
+                  (word) => word.length > 3 && lower.includes(word) && specificModel.name.toLowerCase().includes(word)
+                ))
+            );
+          });
+
+          if (ambiguousMatches.length > 0) {
+            // User typed something like "EM Legend" — ask which variant they mean
+            const allMatches = [specificModel, ...ambiguousMatches];
+            const listStr = allMatches
+              .map((p) => `• **${p.name}** — ${p.price.toLocaleString()} บาท`)
+              .join("\n");
+            intentResponse = `มีหลายรุ่นที่ตรงกับที่ถามครับ:\n\n${listStr}\n\nสนใจรุ่นไหนครับ? พิมพ์ชื่อรุ่นได้เลยครับ 😊`;
+            intentDetails.matchedProducts = allMatches.map((p) => p.name);
+          } else {
+            intentResponse = buildDetailedEMResponse(specificModel, biz);
+            intentDetails.matchedProducts = [specificModel.name];
+          }
         } else {
           intentResponse = buildEMCatalogResponse(emProducts, biz);
         }
@@ -1326,7 +1384,7 @@ export function generatePipelineResponseWithTrace(
   // ── LAYER 11: Category browse ──
   t = now();
   if (
-    ["หมวด", "ประเภท", "category", "มีอะไรบ้าง", "ขายอะไร"].some((k) =>
+    ["หมวด", "ประเภท", "category", "มีอะไรบ้าง", "ขายอะไร", "มีอะไรขายบ้าง", "ขายอะไรบ้าง", "สินค้าทั้งหมด", "แนะนำสินค้า", "สินค้ามีอะไร", "รายการสินค้า"].some((k) =>
       lower.includes(k)
     )
   ) {
