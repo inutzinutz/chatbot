@@ -109,6 +109,9 @@ export async function POST(req: NextRequest) {
         content: pipelineContent,
         trace: pipelineTrace,
         ...(pipelineResult.clarifyOptions ? { clarifyOptions: pipelineResult.clarifyOptions } : {}),
+        ...(pipelineResult.carouselProducts && pipelineResult.carouselProducts.length > 0
+          ? { carouselProducts: pipelineResult.carouselProducts }
+          : {}),
       });
     }
 

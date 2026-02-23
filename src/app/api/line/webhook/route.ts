@@ -5,6 +5,7 @@ import {
   buildSystemPrompt,
   type ChatMessage,
 } from "@/lib/pipeline";
+import { buildLineFlexCarousel } from "@/lib/carouselBuilder";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
 import {
   buildVisionSystemPrompt,
@@ -869,7 +870,7 @@ export async function POST(req: NextRequest) {
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation } =
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
@@ -1036,6 +1037,26 @@ export async function POST(req: NextRequest) {
       // ── CRM auto-extract (fire-and-forget) ──
       autoExtractCRM(businessId, lineUserId).catch(() => {});
 
+      // ── Build messages array (text + optional Flex carousel) ──
+      // LINE Reply API allows up to 5 messages per reply
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lineMessages: any[] = [
+        { type: "text", text: replyText.length > 5000 ? replyText.slice(0, 4997) + "..." : replyText },
+      ];
+      if (carouselProducts && carouselProducts.length > 0) {
+        try {
+          const flexMsg = buildLineFlexCarousel(
+            carouselProducts,
+            `แนะนำสินค้า ${carouselProducts.length} รายการ`
+          );
+          lineMessages.push(flexMsg);
+          diag.sentCarousel = true;
+          diag.carouselCount = carouselProducts.length;
+        } catch (flexErr) {
+          console.error("[LINE webhook] buildLineFlexCarousel error:", flexErr);
+        }
+      }
+
       // ── Send reply via LINE ──
       const replyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
         method: "POST",
@@ -1045,7 +1066,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           replyToken,
-          messages: [{ type: "text", text: replyText.length > 5000 ? replyText.slice(0, 4997) + "..." : replyText }],
+          messages: lineMessages,
         }),
       });
 

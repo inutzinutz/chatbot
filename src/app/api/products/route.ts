@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { products } from "@/lib/products";
+import { products as dji13products } from "@/lib/products";
+import { products as evlifeProducts } from "@/lib/evlife/products";
+import { products as dji13serviceProducts } from "@/lib/dji13service/products";
+
+function getProductsByBusiness(businessId: string) {
+  switch (businessId) {
+    case "evlifethailand":
+      return evlifeProducts;
+    case "dji13service":
+      return dji13serviceProducts;
+    default:
+      return dji13products;
+  }
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  const businessId = searchParams.get("businessId") || "dji13store";
   const query = searchParams.get("q")?.toLowerCase() || "";
   const category = searchParams.get("category")?.toLowerCase() || "";
   const status = searchParams.get("status")?.toLowerCase() || "";
 
-  let filtered = [...products];
+  let filtered = [...getProductsByBusiness(businessId)];
 
   if (query) {
     filtered = filtered.filter(

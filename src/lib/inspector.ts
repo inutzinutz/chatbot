@@ -17,6 +17,9 @@ export interface PipelineStepDetail {
   matchedFaqTopic?: string;
   matchedCategory?: string;
   productsCount?: number;
+  // Carousel recommendation — typed as unknown to avoid circular import with products.ts
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  carouselProducts?: any[];
 }
 
 export interface PipelineStep {

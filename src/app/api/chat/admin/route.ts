@@ -3,6 +3,10 @@ import { chatStore, type QuickReplyTemplate, type CRMNote, type CorrectionEntry 
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
+import { buildLineFlexCarousel, buildFbGenericCarousel } from "@/lib/carouselBuilder";
+import { products as dji13products } from "@/lib/products";
+import { products as evlifeProducts } from "@/lib/evlife/products";
+import { products as dji13serviceProducts } from "@/lib/dji13service/products";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -28,6 +32,27 @@ function getLineAccessToken(businessId: string): string {
     process.env.LINE_CHANNEL_ACCESS_TOKEN ||
     ""
   );
+}
+
+function getFbAccessToken(businessId: string): string {
+  return (
+    (process.env as Record<string, string | undefined>)[
+      envKey(businessId, "FB_PAGE_ACCESS_TOKEN")
+    ] ||
+    process.env.FB_PAGE_ACCESS_TOKEN ||
+    ""
+  );
+}
+
+function getProductsForBusiness(businessId: string) {
+  switch (businessId) {
+    case "evlifethailand":
+      return evlifeProducts;
+    case "dji13service":
+      return dji13serviceProducts;
+    default:
+      return dji13products;
+  }
 }
 
 // ── Extract authenticated username from session cookie ──
@@ -597,6 +622,91 @@ export async function POST(req: NextRequest) {
       if (!correctionId) return NextResponse.json({ error: "Missing correctionId" }, { status: 400 });
       await chatStore.markCorrectionReviewed(businessId, correctionId);
       return NextResponse.json({ success: true });
+    }
+
+    // ── Send Product Carousel to customer ──
+    case "sendCarousel": {
+      if (!userId) {
+        return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      }
+      const productIds = body.productIds as number[] | undefined;
+      if (!productIds || productIds.length === 0) {
+        return NextResponse.json({ error: "Missing productIds" }, { status: 400 });
+      }
+
+      const allProducts = getProductsForBusiness(businessId);
+      const selected = allProducts.filter((p) => productIds.includes(p.id));
+      if (selected.length === 0) {
+        return NextResponse.json({ error: "No matching products found" }, { status: 404 });
+      }
+
+      // Determine customer platform (LINE vs Facebook) by userId prefix
+      const isLinePsid = userId.startsWith("U"); // LINE user IDs start with "U"
+      const accessToken = getLineAccessToken(businessId);
+      const fbToken = getFbAccessToken(businessId);
+
+      const results: { line?: string; facebook?: string } = {};
+
+      // ── LINE Push ──
+      if (accessToken) {
+        try {
+          const flexMsg = buildLineFlexCarousel(selected, `สินค้าแนะนำ (${selected.length} รายการ)`);
+          const lineMessages: object[] = [flexMsg];
+
+          const pushRes = await fetch("https://api.line.me/v2/bot/message/push", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ to: userId, messages: lineMessages }),
+          });
+          results.line = pushRes.ok ? "ok" : `${pushRes.status}`;
+        } catch (err) {
+          results.line = String(err);
+        }
+      }
+
+      // ── Facebook Push (only if userId looks like a FB PSID = numeric string) ──
+      if (!isLinePsid && fbToken) {
+        try {
+          const fbCarousel = buildFbGenericCarousel(selected);
+          const fbRes = await fetch(
+            `https://graph.facebook.com/v19.0/me/messages?access_token=${fbToken}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient: { id: userId },
+                message: fbCarousel,
+              }),
+            }
+          );
+          results.facebook = fbRes.ok ? "ok" : `${fbRes.status}`;
+        } catch (err) {
+          results.facebook = String(err);
+        }
+      }
+
+      // Store as admin message in chat history
+      const productNames = selected.map((p) => p.name).join(", ");
+      await chatStore.addMessage(businessId, userId, {
+        role: "admin",
+        content: `[Carousel] ส่งสินค้าแนะนำ: ${productNames}`,
+        timestamp: Date.now(),
+        sentBy,
+      });
+      await chatStore.logAdminActivity({
+        businessId,
+        username: sentBy,
+        action: "send",
+        userId,
+        displayName: await getDisplayName(userId),
+        detail: `Carousel: ${productNames.slice(0, 100)}`,
+        timestamp: Date.now(),
+      });
+
+      return NextResponse.json({ success: true, sent: selected.length, results });
     }
 
     default:

@@ -25,6 +25,7 @@ import {
   Snowflake,
   FileText,
   ZoomIn,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CRMPanel from "@/components/CRMPanel";
@@ -140,6 +141,14 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const [newTemplateTitle, setNewTemplateTitle] = useState("");
   const [newTemplateText, setNewTemplateText] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // ── Carousel / Send Product Card state ──
+  const [showCarouselModal, setShowCarouselModal] = useState(false);
+  const [carouselProducts, setCarouselProducts] = useState<{ id: number; name: string; price: number; category: string; image: string }[]>([]);
+  const [carouselSelected, setCarouselSelected] = useState<number[]>([]);
+  const [carouselCategoryFilter, setCarouselCategoryFilter] = useState("");
+  const [sendingCarousel, setSendingCarousel] = useState(false);
+  const [carouselLoaded, setCarouselLoaded] = useState(false);
 
   // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -681,6 +690,52 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     } catch {}
   };
 
+  // ── Carousel: load product list from API ──
+  const loadCarouselProducts = useCallback(async () => {
+    if (carouselLoaded) return;
+    try {
+      const res = await fetch(`/api/products?businessId=${encodeURIComponent(businessId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCarouselProducts(data.products || []);
+        setCarouselLoaded(true);
+      }
+    } catch {}
+  }, [businessId, carouselLoaded]);
+
+  const openCarouselModal = () => {
+    setShowCarouselModal(true);
+    setCarouselSelected([]);
+    setCarouselCategoryFilter("");
+    loadCarouselProducts();
+  };
+
+  const toggleCarouselProduct = (id: number) => {
+    setCarouselSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSendCarousel = async () => {
+    if (!activeUserId || carouselSelected.length === 0 || sendingCarousel) return;
+    setSendingCarousel(true);
+    try {
+      await fetch("/api/chat/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sendCarousel",
+          businessId,
+          userId: activeUserId,
+          productIds: carouselSelected,
+        }),
+      });
+      setShowCarouselModal(false);
+      await fetchMessages();
+    } catch {}
+    setSendingCarousel(false);
+  };
+
   // ── Filtered conversations ──
   const pinnedCount = conversations.filter((c) => c.pinned).length;
 
@@ -1156,6 +1211,16 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                         <span>Bot OFF</span>
                       </>
                     )}
+                  </button>
+
+                  {/* Send Product Carousel button */}
+                  <button
+                    onClick={openCarouselModal}
+                    title="ส่งสินค้าแนะนำ (carousel)"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all bg-gray-50 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700"
+                  >
+                    <Package className="h-3.5 w-3.5" />
+                    <span>สินค้า</span>
                   </button>
 
                   {/* Notes toggle */}
@@ -1730,6 +1795,143 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
       )}
 
       </div>{/* end center+right wrapper */}
+
+      {/* ── Product Carousel Modal ── */}
+      {showCarouselModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col max-h-[80vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-emerald-600" />
+                <h3 className="text-sm font-bold text-gray-900">ส่งสินค้าแนะนำ</h3>
+                {carouselSelected.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold">
+                    เลือก {carouselSelected.length} ชิ้น
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowCarouselModal(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Category filter */}
+            <div className="px-5 py-3 border-b border-gray-100">
+              <input
+                type="text"
+                value={carouselCategoryFilter}
+                onChange={(e) => setCarouselCategoryFilter(e.target.value)}
+                placeholder="ค้นหาสินค้า หรือกรอง category..."
+                className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+              />
+            </div>
+
+            {/* Product list */}
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              {carouselProducts.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+                  กำลังโหลดสินค้า...
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {carouselProducts
+                    .filter((p) =>
+                      !carouselCategoryFilter ||
+                      p.name.toLowerCase().includes(carouselCategoryFilter.toLowerCase()) ||
+                      p.category.toLowerCase().includes(carouselCategoryFilter.toLowerCase())
+                    )
+                    .map((p) => {
+                      const isSelected = carouselSelected.includes(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => toggleCarouselProduct(p.id)}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-xl border text-left transition-all",
+                            isSelected
+                              ? "bg-emerald-50 border-emerald-300 ring-1 ring-emerald-400"
+                              : "bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                          )}
+                        >
+                          {/* Product image */}
+                          <div className="h-14 w-14 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={p.image}
+                              alt={p.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          </div>
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <p className={cn(
+                              "text-xs font-semibold truncate",
+                              isSelected ? "text-emerald-800" : "text-gray-800"
+                            )}>
+                              {p.name}
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>
+                            <p className={cn(
+                              "text-xs font-bold mt-1",
+                              isSelected ? "text-emerald-600" : "text-red-500"
+                            )}>
+                              {p.price.toLocaleString("th-TH")} ฿
+                            </p>
+                          </div>
+                          {/* Check indicator */}
+                          {isSelected && (
+                            <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setCarouselSelected([])}
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                ล้างรายการ
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowCarouselModal(false)}
+                  className="px-4 py-2 text-xs font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={handleSendCarousel}
+                  disabled={carouselSelected.length === 0 || sendingCarousel}
+                  className={cn(
+                    "flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-xl transition-all",
+                    carouselSelected.length > 0 && !sendingCarousel
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                      : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  )}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {sendingCarousel
+                    ? "กำลังส่ง..."
+                    : `ส่งสินค้า${carouselSelected.length > 0 ? ` (${carouselSelected.length})` : ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
   buildSystemPrompt,
   type ChatMessage,
 } from "@/lib/pipeline";
+import { buildFbGenericCarousel } from "@/lib/carouselBuilder";
 import { chatStore } from "@/lib/chatStore";
 import {
   buildVisionSystemPrompt,
@@ -102,6 +103,31 @@ async function sendFbMessage(
       }),
     }
   );
+}
+
+async function sendFbCarousel(
+  recipientId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  products: any[],
+  accessToken: string
+): Promise<void> {
+  try {
+    const carousel = buildFbGenericCarousel(products);
+    await fetch(
+      `https://graph.facebook.com/v19.0/me/messages?access_token=${accessToken}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          message: carousel,
+          messaging_type: "RESPONSE",
+        }),
+      }
+    );
+  } catch (err) {
+    console.error("[FB webhook] sendFbCarousel error:", err);
+  }
 }
 
 async function sendTypingIndicator(
@@ -304,6 +330,11 @@ export async function POST(req: NextRequest) {
       // Send reply
       await sendTypingIndicator(senderId, accessToken, false);
       await sendFbMessage(senderId, replyText, accessToken);
+
+      // Send carousel if pipeline attached product recommendations
+      if (pipelineResult.carouselProducts && pipelineResult.carouselProducts.length > 0) {
+        await sendFbCarousel(senderId, pipelineResult.carouselProducts, accessToken);
+      }
     }
   }
 

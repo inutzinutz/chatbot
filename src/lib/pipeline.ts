@@ -5,6 +5,7 @@
 import { type Product } from "@/lib/products";
 import { type BusinessConfig } from "@/lib/businessUnits";
 import type { PipelineStep, PipelineTrace } from "@/lib/inspector";
+import { recommendProducts } from "@/lib/carouselBuilder";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -46,6 +47,12 @@ export interface TracedResult {
    * LINE webhook should re-enable bot + unpin conversation when this is set.
    */
   isCancelEscalation?: boolean;
+  /**
+   * When set, the channel (LINE/FB/Web) should send a product carousel
+   * in addition to (or instead of) the text content.
+   * Max 10 items. Channel-specific formatting is done in each webhook handler.
+   */
+  carouselProducts?: Product[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1084,6 +1091,8 @@ export function generatePipelineResponseWithTrace(
             )
             .join("\n");
           intentResponse = `สินค้าที่เหมาะกับงบของคุณครับ 💰\n\n${list}\n\nสนใจรุ่นไหนให้ผมแจ้งรายละเอียดเพิ่มเติมได้เลยครับ!`;
+          // Attach carousel
+          intentDetails.carouselProducts = pool.slice(0, 5);
         }
         break;
       }
@@ -1103,24 +1112,31 @@ export function generatePipelineResponseWithTrace(
         const wantsBattery = BATTERY_REC_SIGNALS.some((s) => lower.includes(s));
 
         if (wantsMoto && !wantsBattery) {
-          // Show EM motorcycle catalog with specs
+          // Show EM motorcycle catalog with specs + carousel
           const emProducts = biz.getActiveProducts().filter(
             (p) => p.category === "มอเตอร์ไซค์ไฟฟ้า EM"
           );
           intentResponse = emProducts.length > 0
             ? buildEMCatalogResponse(emProducts, biz)
             : intent.responseTemplate;
+          // Attach carousel for LINE/FB/Web
+          if (emProducts.length > 0) {
+            intentDetails.carouselProducts = emProducts.slice(0, 10);
+          }
         } else if (wantsBattery && !wantsMoto) {
-          // Show top battery products
+          // Show top battery products + carousel
           const batProducts = biz.getActiveProducts()
             .filter((p) => p.category === "แบตเตอรี่ EV")
-            .slice(0, 4);
+            .slice(0, 5);
           const list = batProducts
             .map((p) => `🏆 **${p.name}** — ${p.price.toLocaleString()} บาท`)
             .join("\n");
           intentResponse = `แบตเตอรี่ LiFePO4 สำหรับรถ EV ยอดนิยมครับ\n\n${list}\n\nบอกรุ่นรถที่ใช้อยู่ผมจะแจ้งรุ่นที่เข้ากันได้เลยครับ!`;
+          if (batProducts.length > 0) {
+            intentDetails.carouselProducts = batProducts;
+          }
         } else {
-          // No clear context — build from live catalog (no hardcoded prices)
+          // No clear context — show top active products across all categories + carousel
           const allActive = biz.getActiveProducts();
           const cats = biz.getCategories();
           const catSummaries = cats.map((cat) => {
@@ -1135,6 +1151,11 @@ export function generatePipelineResponseWithTrace(
             return `**${cat}** (${priceRange})\n${sample}${items.length > 3 ? `\n- ...และอีก ${items.length - 3} รายการ` : ""}`;
           }).filter(Boolean).join("\n\n");
           intentResponse = `ยินดีช่วยแนะนำครับ! ${biz.name} มีสินค้าดังนี้ครับ\n\n${catSummaries}\n\nสนใจด้านไหนครับ? หรือแจ้งรุ่นสินค้า/รถที่ใช้อยู่ได้เลยครับ!`;
+          // Show top 5 by category for carousel
+          const topRecs = recommendProducts(allActive, { limit: 5 });
+          if (topRecs.length > 0) {
+            intentDetails.carouselProducts = topRecs;
+          }
         }
         break;
       }
@@ -1187,7 +1208,11 @@ export function generatePipelineResponseWithTrace(
       finalLayer = 6;
       finalLayerName = `Intent: ${intent.name}`;
       finalIntent = intent.id;
-      return finishTrace(intentResponse);
+      const intentResult = finishTrace(intentResponse);
+      if (intentDetails.carouselProducts) {
+        intentResult.carouselProducts = intentDetails.carouselProducts as Product[];
+      }
+      return intentResult;
     } else {
       addStep(6, "Intent Engine", "จับ intent แล้วแต่ pass-through", "checked", t, intentDetails);
     }
@@ -1283,16 +1308,18 @@ export function generatePipelineResponseWithTrace(
       return finishTrace(detail);
     }
 
-    // Multiple matches → show brief cards
-    const top = matchedProducts.slice(0, 3);
-    const cards = top.map(buildProductCard).join("\n\n---\n\n");
+    // Multiple matches → show brief cards + carousel
+    const top = matchedProducts.slice(0, 5);
+    const cards = top.slice(0, 3).map(buildProductCard).join("\n\n---\n\n");
     const more =
       matchedProducts.length > 3
         ? `\n\n_...และอีก ${matchedProducts.length - 3} รายการ_`
         : "";
-    return finishTrace(
+    const multiResult = finishTrace(
       `พบสินค้าที่เกี่ยวข้อง ${matchedProducts.length} รายการครับ\n\n${cards}${more}\n\nสนใจรุ่นไหนเพิ่มเติมไหมครับ?`
     );
+    multiResult.carouselProducts = top;
+    return multiResult;
   }
   addStep(10, "Product Search", "ค้นหาสินค้า", "skipped", t);
 

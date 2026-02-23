@@ -28,12 +28,24 @@ interface WebProfile {
   phone: string;
 }
 
+interface CarouselCard {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  priceFormatted: string;
+  image: string;
+  category: string;
+  status: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   trace?: PipelineTrace;
   clarifyOptions?: string[];
+  carouselProducts?: CarouselCard[];
   isStreaming?: boolean;
   attachment?: {
     name: string;
@@ -321,7 +333,14 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
 
         const trace = data.trace as PipelineTrace | undefined;
         const botContent: string = data.content;
-        setMessages((prev) => [...prev, { id: `assistant-${Date.now()}`, role: "assistant", content: botContent, trace, clarifyOptions: data.clarifyOptions as string[] | undefined }]);
+        setMessages((prev) => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: botContent,
+          trace,
+          clarifyOptions: data.clarifyOptions as string[] | undefined,
+          carouselProducts: data.carouselProducts as CarouselCard[] | undefined,
+        }]);
         setIsLoading(false);
 
         if (botContent) saveWebExchange(content, botContent, startedAt, Date.now());
@@ -491,6 +510,52 @@ export default function ChatWindow({ businessId = DEFAULT_BUSINESS_ID }: ChatWin
                     {opt}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* ── Product Carousel ── */}
+            {msg.role === "assistant" && msg.carouselProducts && msg.carouselProducts.length > 0 && (
+              <div className="px-3 pb-3">
+                <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-thin snap-x snap-mandatory">
+                  {msg.carouselProducts.map((card) => (
+                    <div
+                      key={card.id}
+                      className="snap-start shrink-0 w-[200px] rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col"
+                    >
+                      {/* Product image */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={card.image}
+                        alt={card.name}
+                        className="w-full h-[120px] object-cover bg-gray-100"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src =
+                            `https://placehold.co/200x120/e5e7eb/6b7280?text=${encodeURIComponent(card.category)}`;
+                        }}
+                      />
+                      <div className="p-3 flex flex-col flex-1 gap-2">
+                        <p className="text-xs font-bold text-gray-900 leading-tight line-clamp-2">{card.name}</p>
+                        <p className="text-[10px] text-gray-400 line-clamp-2 leading-tight">{card.description.split("\n")[0]}</p>
+                        <p className="text-sm font-bold text-red-600 mt-auto">{card.priceFormatted}</p>
+                        <button
+                          onClick={() => sendText(`สนใจ ${card.name}`)}
+                          disabled={isLoading}
+                          className="w-full mt-1 py-1.5 rounded-xl bg-indigo-600 text-white text-[11px] font-semibold hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          สนใจรุ่นนี้
+                        </button>
+                        <button
+                          onClick={() => sendText(`ขอรายละเอียด ${card.name}`)}
+                          disabled={isLoading}
+                          className="w-full py-1 rounded-xl border border-gray-200 text-gray-600 text-[11px] hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          รายละเอียด
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
