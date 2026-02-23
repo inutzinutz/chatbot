@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatStore } from "@/lib/chatStore";
 import type { ChatConversation, ChatMessage, ChatSummary } from "@/lib/chatStore";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
+import { getFunnelData, FUNNEL_STAGES } from "@/lib/funnelTracker";
 
 // Thai timezone offset: UTC+7
 const TH_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -73,6 +74,48 @@ export async function GET(req: NextRequest) {
   const Redis = (await import("ioredis")).default;
   const g = globalThis as unknown as { __redis?: InstanceType<typeof Redis> };
   const redis = g.__redis;
+
+  // ════════════════════════════════════════════════
+  // VIEW: funnel — Conversion funnel per stage/day
+  // ════════════════════════════════════════════════
+  if (view === "funnel") {
+    const daysParam = parseInt(new URL(req.url).searchParams.get("days") || "30", 10);
+    const days = Math.min(Math.max(daysParam, 1), 90);
+
+    const raw = await getFunnelData(businessId, redis, days);
+
+    // Aggregate totals per stage
+    const stageTotals: Record<string, number> = {};
+    for (const stage of FUNNEL_STAGES) stageTotals[stage] = 0;
+    for (const row of raw) stageTotals[row.stage] = (stageTotals[row.stage] || 0) + row.count;
+
+    // Daily breakdown (last 30 days)
+    const byDay: Record<string, Record<string, number>> = {};
+    for (const row of raw) {
+      if (!byDay[row.date]) byDay[row.date] = {};
+      byDay[row.date][row.stage] = (byDay[row.date][row.stage] || 0) + row.count;
+    }
+    const dailyRows = Object.entries(byDay)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, stages]) => ({ date, ...stages }));
+
+    // Conversion rates between stages
+    const rates: Record<string, number> = {};
+    for (let i = 1; i < FUNNEL_STAGES.length; i++) {
+      const from = FUNNEL_STAGES[i - 1];
+      const to = FUNNEL_STAGES[i];
+      const fromCount = stageTotals[from] || 0;
+      rates[`${from}_to_${to}`] = fromCount > 0 ? Math.round((stageTotals[to] / fromCount) * 100) : 0;
+    }
+
+    return NextResponse.json({
+      stages: FUNNEL_STAGES.map((s) => ({ stage: s, count: stageTotals[s] || 0 })),
+      conversionRates: rates,
+      dailyBreakdown: dailyRows,
+      days,
+      computedAt: Date.now(),
+    });
+  }
 
   // ════════════════════════════════════════════════
   // VIEW: topics — Conversation topic analysis

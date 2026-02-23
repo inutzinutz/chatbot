@@ -15,6 +15,7 @@ import {
 import { logTokenUsage } from "@/lib/tokenTracker";
 import { autoExtractCRM } from "@/lib/crmExtract";
 import { isUserRateLimited, isReplyTokenProcessed } from "@/lib/rateLimit";
+import { trackFunnelEvent } from "@/lib/funnelTracker";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -887,6 +888,23 @@ export async function POST(req: NextRequest) {
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
 
+      // ── Funnel tracking (fire-and-forget) ──
+      // Track conversion stage based on matched intent (layer 6 = Intent Engine)
+      if (pipelineTrace.finalLayer === 6 && pipelineTrace.finalLayerName) {
+        const intentIdMatch = pipelineTrace.steps.find((s) => s.layer === 6)?.details?.intentId;
+        if (intentIdMatch) {
+          try {
+            const Redis = (await import("ioredis")).default;
+            const g = globalThis as unknown as { __redis?: InstanceType<typeof Redis> };
+            if (g.__redis) {
+              trackFunnelEvent(businessId, lineUserId, intentIdMatch as string, g.__redis).catch(() => {});
+            }
+          } catch {
+            // Non-fatal: funnel tracking should never crash the webhook
+          }
+        }
+      }
+
       // ── Cancel Escalation confirmed by pipeline — log system message ──
       if (isCancelEscalation) {
         await chatStore.addMessage(businessId, lineUserId, {
@@ -1014,7 +1032,9 @@ export async function POST(req: NextRequest) {
       if (pipelineTrace.finalLayer < 14) {
         replyText = pipelineContent;
       } else {
-        const systemPrompt = buildSystemPrompt(biz);
+        // Load prior conversation summary to inject as context into AI system prompt
+        const chatSummary = await chatStore.getChatSummary(businessId, lineUserId).catch(() => null);
+        const systemPrompt = buildSystemPrompt(biz, undefined, chatSummary);
         const gptResponse = await callGptFallback(userText, systemPrompt, businessId, historyMessages);
         replyText = gptResponse || pipelineContent;
         diag.gptUsed = !!gptResponse;

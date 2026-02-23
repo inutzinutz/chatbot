@@ -6,6 +6,7 @@ import { type Product } from "@/lib/products";
 import { type BusinessConfig } from "@/lib/businessUnits";
 import type { PipelineStep, PipelineTrace } from "@/lib/inspector";
 import { recommendProducts } from "@/lib/carouselBuilder";
+import type { ChatSummary } from "@/lib/chatStore";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -609,7 +610,7 @@ function buildDetailedProductResponseGeneric(p: Product, biz: BusinessConfig): s
 // SYSTEM PROMPT — business-aware (for GPT fallback)
 // ─────────────────────────────────────────────────────────────
 
-export function buildSystemPrompt(biz: BusinessConfig, offHoursNote?: string): string {
+export function buildSystemPrompt(biz: BusinessConfig, offHoursNote?: string, chatSummary?: ChatSummary | null): string {
   const activeProducts = biz.getActiveProducts();
   const discontinuedProducts = biz.products.filter(
     (p) => p.status === "discontinue"
@@ -656,9 +657,29 @@ export function buildSystemPrompt(biz: BusinessConfig, offHoursNote?: string): s
     )
     .join("\n\n");
 
-  return `${biz.systemPromptIdentity}
+  const summarySection = chatSummary
+    ? `\n\n## บริบทการสนทนาก่อนหน้า (Chat Summary):\n` +
+      `- หัวข้อหลัก: ${chatSummary.topic}\n` +
+      `- ผลลัพธ์: ${chatSummary.outcome}\n` +
+      `- ความรู้สึกลูกค้า: ${chatSummary.sentiment}\n` +
+      `- ประเด็นสำคัญ: ${chatSummary.keyPoints.slice(0, 5).join("; ")}\n` +
+      (chatSummary.pendingAction ? `- สิ่งที่รอดำเนินการ: ${chatSummary.pendingAction}\n` : "") +
+      `(ใช้ข้อมูลนี้เป็น context ของการสนทนา ไม่ต้องถามซ้ำในสิ่งที่ลูกค้าได้แจ้งไว้แล้ว)`
+    : "";
 
-## หมวดหมู่สินค้า: ${categories}
+  const staticPart = `${biz.systemPromptIdentity}
+
+## กฎเหล็ก (ห้ามละเมิดเด็ดขาด):
+1. **ห้ามยืนยันสต็อก** — ไม่มีข้อมูลสต็อกเรียลไทม์ ให้ตอบว่า "ผมขออนุญาตตรวจสอบกับทีมงานให้แน่ชัดก่อนนะครับ"
+2. **ถ้าลูกค้าขอคุยกับแอดมิน/คนจริง** — โอนทันทีและหยุดตอบ
+3. **ไม่มี VAT Refund** สำหรับนักท่องเที่ยว
+4. **สินค้า DISCONTINUE** — แจ้งและแนะนำรุ่นทดแทนเสมอ
+5. **ห้ามแต่งข้อมูลสินค้า** ที่ไม่มีในระบบ
+6. **ห้ามส่ง payment link** ทาง chat
+7. ราคาแสดงเป็นบาทเสมอ รูปแบบ: 12,650 บาท
+8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ`;
+
+  const dynamicPart = `## หมวดหมู่สินค้า: ${categories}
 
 ## รายการสินค้า:
 ${productList}
@@ -673,7 +694,65 @@ ${saleScriptList}
 ${knowledgeList}
 
 ## Intent Policies (ต้องยึดตาม policy ของแต่ละ intent อย่างเคร่งครัด):
-${intentPolicyList}
+${intentPolicyList}${summarySection}${offHoursNote ? `\n\n## สถานะเวลาทำการ:\n${offHoursNote}` : ""}`;
+
+  return `${staticPart}\n\n${dynamicPart}`;
+}
+
+/**
+ * Returns the system prompt split into two parts for Anthropic prompt caching.
+ * - staticPart: persona + iron rules (never changes) → mark with cache_control
+ * - dynamicPart: product list, FAQ, intent policies, summary, off-hours (changes per request)
+ *
+ * Use this instead of buildSystemPrompt() when calling Anthropic API directly
+ * to enable prompt caching and reduce token costs by ~60-80%.
+ */
+export function buildSystemPromptParts(
+  biz: BusinessConfig,
+  offHoursNote?: string,
+  chatSummary?: ChatSummary | null
+): { staticPart: string; dynamicPart: string } {
+  const activeProducts = biz.getActiveProducts();
+  const discontinuedProducts = biz.products.filter((p) => p.status === "discontinue");
+
+  const formatProduct = (p: Product) =>
+    `- [ID:${p.id}] ${p.name} | ราคา ${p.price.toLocaleString()} บาท | ${p.category} | ${p.description.split("\n")[0]}${p.recommendedAlternative ? ` → แนะนำ: ${p.recommendedAlternative}` : ""}`;
+
+  const productList = [
+    "### Active Products:",
+    ...activeProducts.map(formatProduct),
+    ...(discontinuedProducts.length > 0
+      ? ["", "### Discontinued Products (แจ้งลูกค้าและแนะนำรุ่นทดแทนเสมอ):", ...discontinuedProducts.map(formatProduct)]
+      : []),
+  ].join("\n");
+
+  const faqList = biz.faqData.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n");
+  const saleScriptList = biz.saleScripts.map((s) => `- Triggers: ${s.triggers.join(", ")}\n  Reply: ${s.adminReply}`).join("\n");
+  const knowledgeList = biz.knowledgeDocs.map((d) => `[${d.title}]\n${d.content}`).join("\n\n");
+  const categories = biz.getCategories().join(", ");
+
+  const intentPolicyList = biz.intents
+    .filter((i) => i.active)
+    .sort((a, b) => a.number - b.number)
+    .map((i) =>
+      `### Intent #${i.number}: ${i.name}\n` +
+      `Triggers: ${i.triggers.length > 0 ? i.triggers.join(", ") : "(fallback/default)"}\n` +
+      `Policy: ${i.policy}\n` +
+      `Template: ${i.responseTemplate}`
+    )
+    .join("\n\n");
+
+  const summarySection = chatSummary
+    ? `\n\n## บริบทการสนทนาก่อนหน้า (Chat Summary):\n` +
+      `- หัวข้อหลัก: ${chatSummary.topic}\n` +
+      `- ผลลัพธ์: ${chatSummary.outcome}\n` +
+      `- ความรู้สึกลูกค้า: ${chatSummary.sentiment}\n` +
+      `- ประเด็นสำคัญ: ${chatSummary.keyPoints.slice(0, 5).join("; ")}\n` +
+      (chatSummary.pendingAction ? `- สิ่งที่รอดำเนินการ: ${chatSummary.pendingAction}\n` : "") +
+      `(ใช้ข้อมูลนี้เป็น context ของการสนทนา ไม่ต้องถามซ้ำในสิ่งที่ลูกค้าได้แจ้งไว้แล้ว)`
+    : "";
+
+  const staticPart = `${biz.systemPromptIdentity}
 
 ## กฎเหล็ก (ห้ามละเมิดเด็ดขาด):
 1. **ห้ามยืนยันสต็อก** — ไม่มีข้อมูลสต็อกเรียลไทม์ ให้ตอบว่า "ผมขออนุญาตตรวจสอบกับทีมงานให้แน่ชัดก่อนนะครับ"
@@ -683,7 +762,26 @@ ${intentPolicyList}
 5. **ห้ามแต่งข้อมูลสินค้า** ที่ไม่มีในระบบ
 6. **ห้ามส่ง payment link** ทาง chat
 7. ราคาแสดงเป็นบาทเสมอ รูปแบบ: 12,650 บาท
-8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ${offHoursNote ? `\n\n## สถานะเวลาทำการ:\n${offHoursNote}` : ""}`;
+8. ถ้าไม่มีข้อมูล ให้แนะนำติดต่อผ่านช่องทางอย่างเป็นทางการ`;
+
+  const dynamicPart = `## หมวดหมู่สินค้า: ${categories}
+
+## รายการสินค้า:
+${productList}
+
+## FAQ:
+${faqList}
+
+## Sale Scripts (ยึดตามนี้เมื่อตรงกับคำถาม):
+${saleScriptList}
+
+## Knowledge Base:
+${knowledgeList}
+
+## Intent Policies (ต้องยึดตาม policy ของแต่ละ intent อย่างเคร่งครัด):
+${intentPolicyList}${summarySection}${offHoursNote ? `\n\n## สถานะเวลาทำการ:\n${offHoursNote}` : ""}`;
+
+  return { staticPart, dynamicPart };
 }
 
 // ─────────────────────────────────────────────────────────────

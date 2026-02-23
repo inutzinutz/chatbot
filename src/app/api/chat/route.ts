@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBusinessConfig, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
 import type { PipelineTrace } from "@/lib/inspector";
+import type { ChatSummary } from "@/lib/chatStore";
 import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
+  buildSystemPromptParts,
   type ChatMessage,
 } from "@/lib/pipeline";
 
@@ -215,6 +217,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Fetch chat summary for long conversation context (via Node.js endpoint) ──
+    let chatSummary: ChatSummary | null = null;
+    if (conversationId) {
+      try {
+        const summaryUrl = new URL("/api/chat-summary", req.url);
+        summaryUrl.searchParams.set("businessId", businessId);
+        summaryUrl.searchParams.set("userId", conversationId);
+        const summaryResp = await fetch(summaryUrl.toString());
+        if (summaryResp.ok) {
+          const summaryData = await summaryResp.json() as { summary: ChatSummary | null };
+          chatSummary = summaryData.summary;
+        }
+      } catch {
+        // non-fatal: if summary fetch fails, proceed without it
+      }
+    }
+
     // ── Fetch business hours context (fire-and-forget fetch to Node.js endpoint) ──
     let offHoursNote: string | undefined;
     try {
@@ -236,7 +255,13 @@ export async function POST(req: NextRequest) {
 
     // ── Priority 2: Anthropic Claude (streaming) ──
     if (anthropicKey) {
-      const systemPrompt = buildSystemPrompt(biz, offHoursNote);
+      // Split system prompt into cacheable static part (persona + rules) and dynamic part
+      const { staticPart, dynamicPart } = buildSystemPromptParts(biz, offHoursNote, chatSummary);
+      // system as array of blocks: static block gets cache_control to reduce token costs
+      const systemBlocks = [
+        { type: "text" as const, text: staticPart, cache_control: { type: "ephemeral" as const } },
+        { type: "text" as const, text: dynamicPart },
+      ];
 
       const anthropicMessages = messages.slice(-10).map((m) => ({
         role: m.role === "system" ? ("user" as const) : m.role,
@@ -251,11 +276,12 @@ export async function POST(req: NextRequest) {
             "Content-Type": "application/json",
             "x-api-key": anthropicKey,
             "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
             max_tokens: 1024,
-            system: systemPrompt,
+            system: systemBlocks,
             messages: anthropicMessages,
             stream: true,
           }),
@@ -399,7 +425,7 @@ export async function POST(req: NextRequest) {
 
     // ── Priority 2: OpenAI ──
     if (openaiKey) {
-      const systemPrompt = buildSystemPrompt(biz, offHoursNote);
+      const systemPrompt = buildSystemPrompt(biz, offHoursNote, chatSummary);
 
       const response = await fetch(
         "https://api.openai.com/v1/chat/completions",
