@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chatStore, type QuickReplyTemplate, type CRMNote } from "@/lib/chatStore";
+import { chatStore, type QuickReplyTemplate, type CRMNote, type CorrectionEntry } from "@/lib/chatStore";
 import { analyzeConversation } from "@/lib/followupAgent";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
@@ -84,6 +84,21 @@ export async function GET(req: NextRequest) {
     const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
     const entries = await chatStore.getAdminActivityLog(businessId, { limit, offset, username });
     return NextResponse.json({ entries });
+  }
+
+  // View customer journey timeline (C2)
+  if (view === "journey") {
+    const journeyUserId = req.nextUrl.searchParams.get("userId");
+    if (!journeyUserId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+    const events = await chatStore.getCustomerJourney(businessId, journeyUserId);
+    return NextResponse.json({ events });
+  }
+
+  // View correction log (B3)
+  if (view === "corrections") {
+    const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50");
+    const corrections = await chatStore.getCorrections(businessId, limit);
+    return NextResponse.json({ corrections });
   }
 
   // View admin stats (per-user summary)
@@ -551,6 +566,36 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Missing templateId" }, { status: 400 });
       }
       await chatStore.updateTemplate(businessId, templateId, updates);
+      return NextResponse.json({ success: true });
+    }
+
+    // ── B3: Log admin correction of bot response ──
+    case "logCorrection": {
+      if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      const { botMessage, adminCorrection, userQuestion } = body as Partial<CorrectionEntry>;
+      if (!botMessage || !adminCorrection || !userQuestion) {
+        return NextResponse.json({ error: "Missing botMessage, adminCorrection, or userQuestion" }, { status: 400 });
+      }
+      const displayName = await getDisplayName(userId);
+      const entry = await chatStore.logCorrection({
+        businessId,
+        userId,
+        displayName,
+        botMessage,
+        adminCorrection,
+        userQuestion,
+        correctedBy: sentBy,
+        timestamp: Date.now(),
+        suggestedForKB: false,
+      });
+      return NextResponse.json({ success: true, entry });
+    }
+
+    // ── B3: Mark correction as reviewed / added to KB ──
+    case "markCorrectionReviewed": {
+      const correctionId = body.correctionId as string;
+      if (!correctionId) return NextResponse.json({ error: "Missing correctionId" }, { status: 400 });
+      await chatStore.markCorrectionReviewed(businessId, correctionId);
       return NextResponse.json({ success: true });
     }
 

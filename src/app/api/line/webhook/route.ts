@@ -13,6 +13,7 @@ import {
 } from "@/lib/visionPrompt";
 import { logTokenUsage } from "@/lib/tokenTracker";
 import { autoExtractCRM } from "@/lib/crmExtract";
+import { isUserRateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -752,6 +753,17 @@ export async function POST(req: NextRequest) {
     const lineUserId = event.source?.userId || "";
     diag.userText = userText;
     diag.userId = lineUserId;
+
+    // ── A2: Per-userId rate limiting (20 msgs/min) ──
+    if (lineUserId) {
+      const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
+      if (limited) {
+        diag.skipped = "rate_limited";
+        // Don't reply — silently drop to avoid giving bots a signal
+        results.push(diag);
+        continue;
+      }
+    }
 
     try {
       // ── Fetch user profile & ensure conversation exists ──

@@ -191,6 +191,25 @@ export interface CRMNote {
 }
 
 /**
+ * Admin correction log entry — when admin corrects a bot response.
+ * Key: corrections:{businessId}  → Sorted Set (score=ts, member=id)
+ * Key: correction:{businessId}:{id}  → JSON
+ * Used to build training data for knowledge base suggestions.
+ */
+export interface CorrectionEntry {
+  id: string;
+  businessId: string;
+  userId: string;          // customer userId
+  displayName?: string;
+  botMessage: string;      // original bot response that was wrong
+  adminCorrection: string; // what admin actually sent
+  userQuestion: string;    // customer's question that triggered the bot
+  correctedBy: string;     // admin username
+  timestamp: number;
+  suggestedForKB?: boolean; // has admin reviewed for KB addition?
+}
+
+/**
  * Quick Reply Template — a pre-written admin message snippet.
  * Key: templates:{businessId}  → JSON array
  */
@@ -380,6 +399,27 @@ class ChatStore {
       await setJSON(ck, conv);
       // Update sorted set score
       await redis.zadd(convsKey(businessId), msg.timestamp, userId);
+    }
+
+    // ── B1: Trigger conversation summarization every 20 messages ──
+    // Fire-and-forget: don't await so we don't block the response
+    try {
+      const currentLen = await redis.llen(mk);
+      if (currentLen > 0 && currentLen % 20 === 0) {
+        const baseUrl = process.env.NEXTJS_URL ?? process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000";
+        fetch(`${baseUrl}/api/chat/summarize`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-secret": process.env.INTERNAL_SECRET ?? "chatbot-internal",
+          },
+          body: JSON.stringify({ businessId, userId }),
+        }).catch(() => {}); // truly fire-and-forget
+      }
+    } catch {
+      // non-fatal — never block message delivery
     }
 
     return fullMsg;
@@ -897,6 +937,47 @@ class ChatStore {
     }
   }
 
+  // ── B3: Admin Correction Log ──
+  // Key: correction:{businessId}:{id}  → JSON<CorrectionEntry>
+  // Key: corrections:{businessId}      → Sorted Set (score=ts, member=id)
+  // TTL: 180 days per entry
+
+  async logCorrection(entry: Omit<CorrectionEntry, "id">): Promise<CorrectionEntry> {
+    const id = randomUUID();
+    const full: CorrectionEntry = { ...entry, id };
+    const entryKey = `correction:${entry.businessId}:${id}`;
+    await setJSON(entryKey, full);
+    await redis.expire(entryKey, 180 * 24 * 60 * 60);
+    await redis.zadd(`corrections:${entry.businessId}`, entry.timestamp, id);
+    // Trim to last 500
+    await redis.zremrangebyrank(`corrections:${entry.businessId}`, 0, -501);
+    return full;
+  }
+
+  async getCorrections(businessId: string, limit = 50): Promise<CorrectionEntry[]> {
+    const ids = await redis.zrange(`corrections:${businessId}`, 0, limit - 1, "REV");
+    if (!ids.length) return [];
+    const pipeline = redis.pipeline();
+    for (const id of ids) pipeline.get(`correction:${businessId}:${id}`);
+    const results = await pipeline.exec();
+    if (!results) return [];
+    const entries: CorrectionEntry[] = [];
+    for (const [err, raw] of results) {
+      if (err || !raw) continue;
+      try { entries.push(JSON.parse(raw as string) as CorrectionEntry); } catch { /* skip */ }
+    }
+    return entries;
+  }
+
+  async markCorrectionReviewed(businessId: string, id: string): Promise<void> {
+    const key = `correction:${businessId}:${id}`;
+    const entry = await getJSON<CorrectionEntry>(key);
+    if (entry) {
+      entry.suggestedForKB = true;
+      await setJSON(key, entry);
+    }
+  }
+
   // ── CRM Profile ──
 
   async getCRMProfile(businessId: string, userId: string): Promise<CRMProfile | null> {
@@ -935,6 +1016,122 @@ class ChatStore {
     await redis.del(`crm:${businessId}:${userId}`);
     await redis.zrem(`crmindex:${businessId}`, userId);
   }
+
+  // ── C2: Customer Journey Timeline ──
+  // Assembles a chronological timeline of key events for a customer:
+  //   • first message, stage changes, admin replies, follow-ups, pins, bot toggles
+
+  async getCustomerJourney(businessId: string, userId: string): Promise<JourneyEvent[]> {
+    const [messages, conv, crm, corrections] = await Promise.all([
+      this.getMessages(businessId, userId),
+      this.getConversation(businessId, userId),
+      this.getCRMProfile(businessId, userId),
+      this.getCorrections(businessId, 200),
+    ]);
+
+    const events: JourneyEvent[] = [];
+
+    // Conv creation
+    if (conv?.createdAt) {
+      events.push({
+        ts: conv.createdAt,
+        type: "start",
+        label: "เริ่มบทสนทนา",
+        detail: `ผ่านช่องทาง ${conv.source ?? "line"}`,
+        icon: "chat",
+      });
+    }
+
+    // First N messages — group by day to show engagement
+    const msgsByDay: Record<string, number> = {};
+    for (const m of messages) {
+      const day = new Date(m.timestamp).toISOString().slice(0, 10);
+      msgsByDay[day] = (msgsByDay[day] ?? 0) + 1;
+    }
+
+    // Admin messages (pick unique admin actions from messages)
+    const adminMsgs = messages.filter((m) => m.role === "admin" && !m.content.startsWith("[ระบบ]"));
+    if (adminMsgs.length > 0) {
+      const firstAdmin = adminMsgs[0];
+      events.push({
+        ts: firstAdmin.timestamp,
+        type: "admin",
+        label: "Admin เข้ามาดูแล",
+        detail: `โดย ${firstAdmin.sentBy ?? "admin"}`,
+        icon: "admin",
+      });
+    }
+
+    // System events from messages (bot toggle, pin)
+    for (const m of messages) {
+      if (!m.content.startsWith("[ระบบ]")) continue;
+      if (m.content.includes("ปักหมุด")) {
+        events.push({ ts: m.timestamp, type: "pin", label: "ปักหมุดสนทนา", detail: m.content.replace("[ระบบ] ", ""), icon: "pin" });
+      } else if (m.content.includes("ปิด Bot")) {
+        events.push({ ts: m.timestamp, type: "bot_off", label: "ปิด Bot", detail: m.content.replace("[ระบบ] ", ""), icon: "bot" });
+      } else if (m.content.includes("เปิด Bot")) {
+        events.push({ ts: m.timestamp, type: "bot_on", label: "เปิด Bot", detail: m.content.replace("[ระบบ] ", ""), icon: "bot" });
+      }
+    }
+
+    // CRM stage change
+    if (crm?.stage) {
+      events.push({
+        ts: crm.updatedAt ?? crm.createdAt,
+        type: "stage",
+        label: `Stage: ${crm.stage}`,
+        detail: crm.updatedBy ? `แก้โดย ${crm.updatedBy}` : "AI สกัดอัตโนมัติ",
+        icon: "crm",
+      });
+    }
+
+    // CRM intent
+    if (crm?.purchaseIntent) {
+      events.push({
+        ts: crm.extractedAt ?? crm.createdAt,
+        type: "intent",
+        label: `Intent: ${crm.purchaseIntent}`,
+        detail: crm.interestedProducts?.join(", ") ?? "",
+        icon: "intent",
+      });
+    }
+
+    // Corrections for this user
+    const userCorrections = corrections.filter((c) => c.userId === userId);
+    for (const c of userCorrections) {
+      events.push({
+        ts: c.timestamp,
+        type: "correction",
+        label: "Admin แก้ไขคำตอบ Bot",
+        detail: `Q: "${c.userQuestion.slice(0, 60)}"`,
+        icon: "correction",
+      });
+    }
+
+    // Daily message count milestones
+    const days = Object.entries(msgsByDay);
+    for (const [day, count] of days) {
+      const dayTs = new Date(day + "T12:00:00+07:00").getTime();
+      events.push({
+        ts: dayTs,
+        type: "activity",
+        label: `${count} ข้อความ`,
+        detail: day,
+        icon: "message",
+      });
+    }
+
+    // Sort by timestamp asc
+    return events.sort((a, b) => a.ts - b.ts);
+  }
+}
+
+export interface JourneyEvent {
+  ts: number;
+  type: "start" | "admin" | "pin" | "bot_on" | "bot_off" | "stage" | "intent" | "correction" | "activity";
+  label: string;
+  detail: string;
+  icon: "chat" | "admin" | "pin" | "bot" | "crm" | "intent" | "correction" | "message";
 }
 
 // ── Export singleton ──

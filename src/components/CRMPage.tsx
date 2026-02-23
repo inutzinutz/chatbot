@@ -20,9 +20,17 @@ import {
   ShoppingBag,
   User,
   Sparkles,
+  Clock,
+  MessageSquare,
+  Shield,
+  Pin,
+  Bot,
+  Target,
+  Wrench,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CRMProfile } from "@/lib/chatStore";
+import type { CRMProfile, JourneyEvent } from "@/lib/chatStore";
 
 interface CRMPageProps {
   businessId: string;
@@ -63,20 +71,63 @@ function StageBadge({ stage }: { stage?: CRMProfile["stage"] }) {
   );
 }
 
+// ── Journey helpers ──
+function journeyDotColor(type: JourneyEvent["type"]): string {
+  switch (type) {
+    case "start": return "bg-indigo-500";
+    case "admin": return "bg-blue-500";
+    case "pin": return "bg-orange-500";
+    case "bot_off": return "bg-red-400";
+    case "bot_on": return "bg-green-400";
+    case "stage": return "bg-emerald-500";
+    case "intent": return "bg-amber-500";
+    case "correction": return "bg-purple-400";
+    default: return "bg-gray-300";
+  }
+}
+
+function journeyIconEl(icon: JourneyEvent["icon"]) {
+  const cls = "h-3 w-3";
+  switch (icon) {
+    case "admin": return <Shield className={cls} />;
+    case "pin": return <Pin className={cls} />;
+    case "crm": return <User className={cls} />;
+    case "intent": return <Target className={cls} />;
+    case "correction": return <Wrench className={cls} />;
+    case "bot": return <Bot className={cls} />;
+    default: return <MessageSquare className={cls} />;
+  }
+}
+
 // ── Detail Modal ──
 function ProfileModal({
   profile,
   onClose,
   onSave,
+  businessId,
 }: {
   profile: CRMProfile;
   onClose: () => void;
   onSave: (p: CRMProfile) => void;
+  businessId: string;
 }) {
+  const [activeTab, setActiveTab] = useState<"profile" | "journey">("profile");
   const [form, setForm] = useState<CRMProfile>(profile);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [productInput, setProductInput] = useState("");
+  const [journey, setJourney] = useState<JourneyEvent[]>([]);
+  const [journeyLoading, setJourneyLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "journey") return;
+    setJourneyLoading(true);
+    fetch(`/api/chat/admin?businessId=${encodeURIComponent(businessId)}&view=journey&userId=${encodeURIComponent(profile.userId)}`)
+      .then((r) => r.json())
+      .then((d) => setJourney((d.events as JourneyEvent[]) ?? []))
+      .catch(() => {})
+      .finally(() => setJourneyLoading(false));
+  }, [activeTab, businessId, profile.userId]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -109,18 +160,73 @@ function ProfileModal({
       <div className="bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl w-full sm:w-[520px] max-h-[90dvh] flex flex-col overflow-hidden">
         {/* Modal header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-indigo-500" />
-            <h3 className="text-sm font-bold text-gray-900">{profile.name || profile.userId.slice(0, 16)}</h3>
+          <div className="flex items-center gap-2 min-w-0">
+            <User className="h-4 w-4 text-indigo-500 shrink-0" />
+            <h3 className="text-sm font-bold text-gray-900 truncate">{profile.name || profile.userId.slice(0, 16)}</h3>
             <IntentBadge intent={profile.purchaseIntent} />
             <StageBadge stage={profile.stage} />
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Form */}
+        {/* Tabs */}
+        <div className="flex border-b border-gray-100 px-5 shrink-0">
+          {(["profile", "journey"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors",
+                activeTab === t
+                  ? "border-indigo-600 text-indigo-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              )}
+            >
+              {t === "profile" ? <User className="h-3.5 w-3.5" /> : <GitBranch className="h-3.5 w-3.5" />}
+              {t === "profile" ? "ข้อมูลลูกค้า" : "Journey"}
+            </button>
+          ))}
+        </div>
+
+        {/* Journey Tab */}
+        {activeTab === "journey" && (
+          <div className="flex-1 overflow-y-auto p-5">
+            {journeyLoading ? (
+              <div className="flex justify-center py-8"><div className="h-5 w-5 border-2 border-indigo-400/30 border-t-indigo-500 rounded-full animate-spin" /></div>
+            ) : journey.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">ยังไม่มีข้อมูล Journey</p>
+            ) : (
+              <div className="relative">
+                {/* Vertical line */}
+                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-gray-200" />
+                <div className="space-y-4">
+                  {journey.map((ev, i) => (
+                    <div key={i} className="flex items-start gap-3 relative">
+                      {/* Dot */}
+                      <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-white shrink-0 z-10", journeyDotColor(ev.type))}>
+                        {journeyIconEl(ev.icon)}
+                      </div>
+                      <div className="flex-1 min-w-0 pb-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold text-gray-800">{ev.label}</p>
+                          <span className="text-[9px] text-gray-400 shrink-0">
+                            {new Date(ev.ts).toLocaleDateString("th-TH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        {ev.detail && <p className="text-[10px] text-gray-500 truncate mt-0.5">{ev.detail}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Profile Form */}
+        {activeTab === "profile" && (
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Row 1 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -222,9 +328,11 @@ function ProfileModal({
             </p>
           )}
         </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/50">
+        {/* Footer — only on profile tab */}
+        {activeTab === "profile" && (
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/50 shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-xs rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">
             ยกเลิก
           </button>
@@ -236,6 +344,7 @@ function ProfileModal({
             {saving ? "กำลังบันทึก..." : "บันทึก"}
           </button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -699,6 +808,7 @@ export default function CRMPage({ businessId }: CRMPageProps) {
           profile={selectedProfile}
           onClose={() => setSelectedProfile(null)}
           onSave={handleSave}
+          businessId={businessId}
         />
       )}
     </div>

@@ -144,8 +144,8 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   // ── Refs ──
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
-  const msgPollRef = useRef<NodeJS.Timeout | null>(null);
+  const sseConvRef = useRef<EventSource | null>(null);
+  const sseMsgRef = useRef<EventSource | null>(null);
 
   // ── Fetch conversations ──
   const fetchConversations = useCallback(async () => {
@@ -228,48 +228,100 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     } catch {}
   }, [businessId]);
 
-  // ── Polling — visibility-aware ──
-  // Conversation list: 2s when tab active, paused when hidden
-  // Messages: 1.5s when tab active, paused when hidden
+  // ── SSE: conversation list stream ──
   useEffect(() => {
     fetchConversations();
     fetchFollowups();
     fetchTemplates();
 
-    let paused = false;
-    const startConvPoll = () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(() => {
-        if (!paused) fetchConversations();
-      }, 2000);
+    const connectConvSSE = () => {
+      if (sseConvRef.current) sseConvRef.current.close();
+      const es = new EventSource(
+        `/api/chat/stream?businessId=${encodeURIComponent(businessId)}`
+      );
+      es.addEventListener("convs", (e) => {
+        try {
+          const payload = JSON.parse((e as MessageEvent).data) as {
+            conversations?: import("@/lib/chatStore").ChatConversation[];
+            totalUnread?: number;
+            globalBotEnabled?: boolean;
+          };
+          if (payload.conversations) setConversations(payload.conversations);
+          if (typeof payload.totalUnread === "number") setTotalUnread(payload.totalUnread);
+          if (typeof payload.globalBotEnabled === "boolean") setGlobalBotEnabled(payload.globalBotEnabled);
+        } catch {}
+      });
+      es.onerror = () => {
+        es.close();
+        setTimeout(connectConvSSE, 3000);
+      };
+      sseConvRef.current = es;
     };
+
+    connectConvSSE();
+
     const handleVisibility = () => {
-      paused = document.hidden;
       if (!document.hidden) {
-        fetchConversations(); // immediate refresh on tab focus
+        connectConvSSE();
+        fetchConversations();
       }
     };
-
-    startConvPoll();
     document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      sseConvRef.current?.close();
+      sseConvRef.current = null;
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [fetchConversations, fetchFollowups, fetchTemplates]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]);
 
+  // ── SSE: messages stream for active conversation ──
   useEffect(() => {
-    if (activeUserId) {
-      fetchMessages();
-      if (msgPollRef.current) clearInterval(msgPollRef.current);
-      msgPollRef.current = setInterval(() => {
-        if (!document.hidden) fetchMessages();
-      }, 1500);
+    if (!activeUserId) {
+      sseMsgRef.current?.close();
+      sseMsgRef.current = null;
+      return;
     }
-    return () => {
-      if (msgPollRef.current) clearInterval(msgPollRef.current);
+
+    fetchMessages();
+
+    const connectMsgSSE = () => {
+      if (sseMsgRef.current) sseMsgRef.current.close();
+      const es = new EventSource(
+        `/api/chat/stream?businessId=${encodeURIComponent(businessId)}&userId=${encodeURIComponent(activeUserId)}`
+      );
+      es.addEventListener("msgs", (e) => {
+        try {
+          const payload = JSON.parse((e as MessageEvent).data) as {
+            messages?: import("@/lib/chatStore").ChatMessage[];
+            followup?: import("@/lib/chatStore").FollowUpResult & { needsFollowup: boolean };
+          };
+          if (payload.messages) setMessages(payload.messages);
+          if (payload.followup && payload.followup.needsFollowup) {
+            setActiveFollowup(payload.followup);
+            setEditFollowupMsg(payload.followup.suggestedMessage || "");
+          } else if (payload.followup) {
+            setActiveFollowup(null);
+            setEditFollowupMsg("");
+          }
+        } catch {}
+      });
+      es.onerror = () => {
+        es.close();
+        setTimeout(connectMsgSSE, 3000);
+      };
+      sseMsgRef.current = es;
     };
-  }, [activeUserId, fetchMessages]);
+
+    connectMsgSSE();
+
+    return () => {
+      sseMsgRef.current?.close();
+      sseMsgRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUserId, businessId]);
 
   // ── Auto-scroll to bottom on new messages ──
   useEffect(() => {
