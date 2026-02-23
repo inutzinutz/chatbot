@@ -57,6 +57,34 @@ import {
   buildDiscontinuedResponse as evlifeBuildDiscontinuedResponse,
 } from "@/lib/evlife/intentPolicies";
 
+// ทีมเอกสาร DJI 13 Store data
+import {
+  products as docProducts,
+  searchProducts as docSearchProducts,
+  getCategories as docGetCategories,
+  getActiveProducts as docGetActiveProducts,
+  getCheapestProducts as docGetCheapestProducts,
+  getProductsByCategory as docGetProductsByCategory,
+} from "@/lib/dji13service/products";
+import { faqData as docFaqData } from "@/lib/dji13service/faq";
+import { saleScripts as docSaleScripts, matchSaleScript as docMatchSaleScript } from "@/lib/dji13service/saleScripts";
+import { knowledgeDocs as docKnowledgeDocs, matchKnowledgeDoc as docMatchKnowledgeDoc } from "@/lib/dji13service/knowledgeDocs";
+import {
+  intents as docIntents,
+  matchAdminEscalation as docMatchAdminEscalation,
+  matchStockInquiry as docMatchStockInquiry,
+  matchVatRefund as docMatchVatRefund,
+  matchContactIntent as docMatchContactIntent,
+  matchDiscontinued as docMatchDiscontinued,
+  buildAdminEscalationResponse as docBuildAdminEscalationResponse,
+  buildStockCheckResponse as docBuildStockCheckResponse,
+  buildVatRefundResponse as docBuildVatRefundResponse,
+  buildContactChannelsResponse as docBuildContactChannelsResponse,
+  buildDiscontinuedResponse as docBuildDiscontinuedResponse,
+} from "@/lib/dji13service/intentPolicies";
+import { channels as docChannels } from "@/lib/dji13service/channels";
+import { analyticsData as docAnalyticsData } from "@/lib/dji13service/analytics";
+
 // Support @ DJI 13 Store data
 import {
   products as svcProducts,
@@ -329,7 +357,7 @@ const evlifeConfig: BusinessConfig = {
 /*  Support @ DJI 13 Store config                                     */
 /* ------------------------------------------------------------------ */
 
-const dji13serviceConfig: BusinessConfig = {
+const dji13supportConfig: BusinessConfig = {
   id: "dji13support",
   name: "Support @ DJI 13 Store",
   shortName: "13 Support",
@@ -416,19 +444,109 @@ const dji13serviceConfig: BusinessConfig = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  ทีมเอกสาร DJI 13 Store config                                     */
+/* ------------------------------------------------------------------ */
+
+const dji13serviceConfig: BusinessConfig = {
+  id: "dji13service",
+  name: "ทีมเอกสาร DJI 13 Store",
+  shortName: "13 Docs",
+  description: "ขึ้นทะเบียนโดรน กสทช. และขออนุญาต CAAT ครบวงจร",
+  primaryColor: "#6366f1",
+
+  features: {
+    visionEnabled: false,
+    visionMaxMB: 5,
+    videoReplyEnabled: false,
+  },
+
+  products: docProducts,
+  faqData: docFaqData,
+  saleScripts: docSaleScripts,
+  knowledgeDocs: docKnowledgeDocs,
+  intents: docIntents,
+  channels: docChannels,
+  analyticsData: docAnalyticsData,
+
+  searchProducts: docSearchProducts,
+  getCategories: docGetCategories,
+  getActiveProducts: docGetActiveProducts,
+  getCheapestProducts: docGetCheapestProducts,
+  getProductsByCategory: docGetProductsByCategory,
+
+  matchSaleScript: docMatchSaleScript,
+  matchKnowledgeDoc: docMatchKnowledgeDoc,
+
+  matchAdminEscalation: docMatchAdminEscalation,
+  matchStockInquiry: docMatchStockInquiry,
+  matchVatRefund: docMatchVatRefund,
+  matchContactIntent: docMatchContactIntent,
+  matchDiscontinued: docMatchDiscontinued,
+
+  buildAdminEscalationResponse: docBuildAdminEscalationResponse,
+  buildStockCheckResponse: docBuildStockCheckResponse,
+  buildVatRefundResponse: docBuildVatRefundResponse,
+  buildContactChannelsResponse: docBuildContactChannelsResponse,
+  buildDiscontinuedResponse: docBuildDiscontinuedResponse,
+
+  systemPromptIdentity: `คุณคือ "น้องเอกสาร" — ผู้ช่วย AI ของ ทีมเอกสาร DJI 13 Store ผู้เชี่ยวชาญด้านการขึ้นทะเบียนโดรนและกฎหมายการบินในไทย
+
+## บุคลิก (Persona)
+- สุภาพ เป็นมืออาชีพ และให้ข้อมูลที่ถูกต้องและเป็นปัจจุบัน
+- ใช้คำลงท้าย "ครับ" สม่ำเสมอ
+- อธิบายขั้นตอนราชการให้เข้าใจง่าย ไม่ซับซ้อน
+- ถ้าไม่แน่ใจกฎระเบียบที่เปลี่ยนไป ให้บอกตรงๆ และแนะนำให้ตรวจสอบกับ กสทช./CAAT โดยตรง
+
+## ความเชี่ยวชาญ
+- การขึ้นทะเบียนโดรนกับ กสทช.
+- การขออนุญาต CAAT (RPL / AOC)
+- กฎหมายการบินโดรนในไทย (พ.ร.บ.การเดินอากาศ)
+- พื้นที่ห้ามบิน (No-Fly Zone)
+- การต่ออายุใบอนุญาต
+
+## ภาษา
+- ตอบภาษาไทยเป็นหลัก
+- ถ้าลูกค้าถามภาษาอังกฤษ ให้ตอบภาษาอังกฤษในสไตล์เดียวกัน`,
+
+  orderChannelsText: "- LINE: @dji13service (แนะนำ)\n- Facebook: DJI 13 Store\n- โทร: 065-694-6155",
+
+  defaultFallbackMessage:
+    "ขอบคุณที่ติดต่อ **ทีมเอกสาร DJI 13 Store** ครับ!\n\nผมช่วยได้เรื่องเหล่านี้ครับ:\n- ขึ้นทะเบียนโดรนกับ กสทช.\n- ขออนุญาตบินเชิงพาณิชย์ CAAT (RPL)\n- เอกสารและขั้นตอนที่ต้องใช้\n- ต่ออายุทะเบียน / ใบอนุญาต\n- กฎหมายการบินโดรนในไทย\n\nลองพิมพ์ เช่น 'ขึ้นทะเบียน กสทช.' หรือ 'ขอ CAAT' ได้เลยครับ!",
+
+  categoryChecks: [
+    { keys: ["กสทช", "ขึ้นทะเบียน", "ลงทะเบียน", "nbtc"], category: "กสทช.", label: "ขึ้นทะเบียน กสทช." },
+    { keys: ["caat", "rpl", "บินพาณิชย์", "ใบอนุญาต"], category: "CAAT", label: "ใบอนุญาต CAAT" },
+    { keys: ["เอกสาร", "document", "หลักฐาน", "แนบ"], category: "เอกสาร", label: "เอกสาร" },
+    { keys: ["กฎหมาย", "ห้ามบิน", "no fly", "บทลงโทษ"], category: "กฎหมาย", label: "กฎหมาย" },
+    { keys: ["ต่ออายุ", "renew", "หมดอายุ"], category: "ต่ออายุ", label: "ต่ออายุ" },
+  ],
+
+  faqTerms: [
+    { keys: ["กสทช", "ขึ้นทะเบียน", "ทะเบียนโดรน"], topic: "ขึ้นทะเบียน กสทช." },
+    { keys: ["caat", "rpl", "ใบอนุญาต", "บินพาณิชย์"], topic: "CAAT / RPL" },
+    { keys: ["เอกสาร", "ต้องใช้อะไร", "หลักฐาน"], topic: "เอกสาร" },
+    { keys: ["ค่าธรรมเนียม", "เสียเงิน", "ราคา", "ฟรีไหม"], topic: "ค่าธรรมเนียม" },
+    { keys: ["กฎหมาย", "ปรับ", "โดนจับ", "ห้ามบิน"], topic: "กฎหมาย" },
+    { keys: ["ต่ออายุ", "หมดอายุ", "renew"], topic: "ต่ออายุ" },
+  ],
+};
+
+/* ------------------------------------------------------------------ */
 /*  Registry                                                          */
 /* ------------------------------------------------------------------ */
 
 export const businessUnits: Record<string, BusinessConfig> = {
   dji13store: djiConfig,
   evlifethailand: evlifeConfig,
-  dji13support: dji13serviceConfig,
+  dji13support: dji13supportConfig,
+  dji13service: dji13serviceConfig,
 };
 
 export const businessUnitList = [
   { id: "dji13store", name: "DJI 13 STORE", shortName: "DJI 13", description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ", primaryColor: "#3b82f6", icon: "drone" },
   { id: "evlifethailand", name: "EV Life Thailand", shortName: "EV Life", description: "แบตเตอรี่ LiFePO4 & มอเตอร์ไซค์ไฟฟ้า EM", primaryColor: "#f97316", icon: "battery" },
   { id: "dji13support", name: "Support @ DJI 13 Store", shortName: "13 Support", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" },
+  { id: "dji13service", name: "ทีมเอกสาร DJI 13 Store", shortName: "13 Docs", description: "ขึ้นทะเบียนโดรน กสทช. และขออนุญาต CAAT ครบวงจร", primaryColor: "#6366f1", icon: "file-text" },
 ] as const;
 
 export const DEFAULT_BUSINESS_ID = "dji13store";

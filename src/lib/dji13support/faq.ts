@@ -65,6 +65,16 @@ export const faqData: FAQItem[] = [
     answer: "มีอะไหล่แท้ DJI จำหน่ายครับ:\n- ใบพัด: เริ่ม 350 บาท/คู่\n- มอเตอร์: เริ่ม 1,200 บาท/ตัว\n- แบตเตอรี่: เริ่ม 1,800 บาท\n- Shell ตัวถัง: เริ่ม 450 บาท\n\nราคาขึ้นอยู่กับรุ่นโดรน สอบถาม LINE @dji13support พร้อมแจ้งรุ่นโดรนครับ",
     category: "อะไหล่",
   },
+  {
+    question: "โดรนที่ซื้อมาต้องขึ้นทะเบียน กสทช. ไหม",
+    answer: "ขึ้นอยู่กับน้ำหนักครับ:\n\n- น้ำหนัก < 250 กรัม (เช่น DJI Mini 4 Pro 249 กรัม): ไม่ต้องขึ้นทะเบียน\n- น้ำหนัก ≥ 250 กรัม (เช่น DJI Air 3, Mavic 3, Avata 2): ต้องขึ้นทะเบียน กสทช.\n\nขึ้นทะเบียนที่ drone.nbtc.go.th (ฟรี) หรือให้ทีมเอกสาร DJI 13 Store ช่วยดำเนินการแทน\nLINE: @dji13service",
+    category: "ทั่วไป",
+  },
+  {
+    question: "ซื้อโดรนใหม่มา ต้องทำอะไรบ้างก่อนบิน",
+    answer: "Checklist หลังซื้อโดรน DJI ใหม่:\n\n1. ลงทะเบียน Serial Number ในแอป DJI Fly\n2. ชาร์จแบตเตอรี่ให้เต็ม\n3. อัปเดต Firmware โดรน + RC ให้ล่าสุด\n4. ทำ IMU / Compass / Gimbal Calibration\n5. ซื้อ DJI Care Refresh ภายใน 48 ชั่วโมง (แนะนำ!)\n6. ขึ้นทะเบียน กสทช. ถ้าโดรน ≥ 250 กรัม\n7. ทดสอบบินในที่โล่ง ก่อนบินจริง\n\nต้องการช่วยขึ้นทะเบียน กสทช. ติดต่อ LINE @dji13service ครับ",
+    category: "ทั่วไป",
+  },
 ];
 
 export function searchFAQ(query: string): FAQItem[] {

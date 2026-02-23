@@ -175,6 +175,19 @@ export const products: Product[] = [
     status: "active",
   },
 
+  // === บริการเอกสารโดรน (Cross-sell → ทีมเอกสาร) ===
+
+  {
+    id: 5401,
+    name: "บริการขึ้นทะเบียนโดรน กสทช. — ทีมเอกสาร DJI 13 Store",
+    description: "บริการขึ้นทะเบียนโดรนกับ กสทช. แทนลูกค้า รับเอกสาร ยื่น ติดตามผล ส่ง QR Code ให้เมื่อสำเร็จ\nNote: ดำเนินการโดยทีมเอกสาร DJI 13 Store | LINE: @dji13service",
+    price: 0,
+    category: "บริการเอกสาร",
+    image: "https://placehold.co/300x300/6366f1/white?text=NBTC+Reg",
+    tags: ["กสทช.", "ขึ้นทะเบียน", "register", "nbtc", "เอกสาร", "DJI"],
+    status: "active",
+  },
+
   // === บริการทดสอบและอัปเดต ===
 
   {
