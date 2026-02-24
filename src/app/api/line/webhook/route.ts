@@ -851,7 +851,6 @@ export async function POST(req: NextRequest) {
       // ── Check global bot toggle (entire business) ──
       const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
       diag.globalBotEnabled = globalBotEnabled;
-      console.log(`[webhook] businessId="${businessId}" userId="${lineUserId}" globalBotEnabled=${globalBotEnabled}`);
 
       if (!globalBotEnabled) {
         // Send offline message when global bot is disabled

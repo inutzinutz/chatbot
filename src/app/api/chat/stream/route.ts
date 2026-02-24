@@ -3,7 +3,7 @@ import { requireAdminSession, unauthorizedResponse } from "@/lib/auth";
 import { chatStore } from "@/lib/chatStore";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 25; // Vercel Hobby limit — stream closes gracefully before hard kill
 
 /* ------------------------------------------------------------------ */
 /*  SSE Real-time Stream                                               */
@@ -45,6 +45,11 @@ export async function GET(req: NextRequest) {
   let convInterval: ReturnType<typeof setInterval> | null = null;
   let msgInterval: ReturnType<typeof setInterval> | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let gracefulCloseTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Close gracefully after 20s — well before Vercel's 25s hard kill.
+  // EventSource will auto-reconnect using the retry hint we send at open.
+  const STREAM_TTL_MS = 20_000;
 
   const stream = new ReadableStream({
     start(controller) {
@@ -55,6 +60,14 @@ export async function GET(req: NextRequest) {
         } catch {
           closed = true;
         }
+      };
+
+      const cleanup = () => {
+        closed = true;
+        if (convInterval) clearInterval(convInterval);
+        if (msgInterval) clearInterval(msgInterval);
+        if (pingInterval) clearInterval(pingInterval);
+        if (gracefulCloseTimeout) clearTimeout(gracefulCloseTimeout);
       };
 
       // ── Initial data burst ──
@@ -79,6 +92,9 @@ export async function GET(req: NextRequest) {
         }
       };
 
+      // Tell browser to reconnect after 1s when this stream ends
+      push(`retry: 1000\n\n`);
+
       // Fire initial data immediately
       sendConvs();
       if (userId) sendMsgs(userId);
@@ -98,11 +114,17 @@ export async function GET(req: NextRequest) {
         }, 1500);
       }
 
-      // Keepalive ping every 15s (prevents proxy/Vercel timeout)
+      // Keepalive ping every 10s
       pingInterval = setInterval(() => {
         if (closed) return;
         push(sseEvent("ping", { ts: Date.now() }));
-      }, 15000);
+      }, 10000);
+
+      // ── Graceful close before Vercel hard-kills the function ──
+      gracefulCloseTimeout = setTimeout(() => {
+        cleanup();
+        try { controller.close(); } catch { /* already closed */ }
+      }, STREAM_TTL_MS);
     },
 
     cancel() {
@@ -110,6 +132,7 @@ export async function GET(req: NextRequest) {
       if (convInterval) clearInterval(convInterval);
       if (msgInterval) clearInterval(msgInterval);
       if (pingInterval) clearInterval(pingInterval);
+      if (gracefulCloseTimeout) clearTimeout(gracefulCloseTimeout);
     },
   });
 
