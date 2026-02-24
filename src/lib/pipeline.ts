@@ -821,15 +821,19 @@ interface ClarifyResult {
 }
 
 /**
- * Returns a clarify question + quick-reply options ONLY when there is genuinely
- * no way to determine what the customer wants.
+ * Returns a clarify question + quick-reply options when the pipeline is not confident.
  *
- * Single rule: no intent matched at all (score = 0), no product in context,
- * AND the message is longer than a single character (i.e. not just "?" or whitespace).
+ * Triggers:
+ *   A) No intent matched at all (score = 0) and message > 1 char
+ *   B) Top intent score is low (2–3) AND message is substantive (> 5 chars)
+ *      → pipeline matched something but not confidently enough to act
+ *   C) Top-2 intent scores are tied (within 1.5 points) AND both ≥ 2
+ *      → ambiguous between two intents
  *
- * Everything else — short words, low scores, tied scores — should be handled by
- * the normal pipeline layers. Broader trigger matching in intentPolicies is the
- * right fix for ambiguous short messages, not asking the customer to clarify.
+ * Does NOT trigger for:
+ *   - Very short messages (≤ 5 chars) — handled by greeting/affirmation layers
+ *   - Common greetings / single affirmations
+ *   - Messages where a product was found in context (Layer 5 or product search handles those)
  */
 function buildClarifyResponse(
   message: string,
@@ -838,27 +842,48 @@ function buildClarifyResponse(
   biz: BusinessConfig
 ): ClarifyResult | null {
   const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
   const topScore = allScores[0]?.score ?? 0;
-  const hasProductCtx = !!ctx.activeProduct;
+  const secondScore = allScores[1]?.score ?? 0;
 
-  // Only trigger when pipeline has truly nothing — zero intent score, no product context
-  if (topScore > 0 || hasProductCtx || trimmed.length <= 1) {
-    return null;
-  }
-
-  // Skip common one-word greetings and affirmations that default fallback handles fine
-  const skipWords = ["สวัสดี", "หวัดดี", "hello", "hi", "ok", "โอเค", "ครับ", "ค่ะ", "ได้", "เอา", "?", "??"];
-  if (skipWords.some((w) => trimmed.toLowerCase() === w)) {
-    return null;
-  }
+  // Skip very short messages and common greetings / single affirmations
+  if (trimmed.length <= 5) return null;
+  const skipWords = ["สวัสดี", "หวัดดี", "hello", "hi", "ok", "โอเค", "ครับ", "ค่ะ", "ได้", "เอา", "?", "??", "ขอบคุณ", "thank you", "thanks"];
+  if (skipWords.some((w) => lower === w || lower === w + "ครับ" || lower === w + "ค่ะ")) return null;
 
   const defaultOptions = biz.categoryChecks.slice(0, 4).map((c) => c.label);
   if (defaultOptions.length === 0) defaultOptions.push("ราคาสินค้า", "สินค้าแนะนำ", "ติดต่อเรา");
 
-  return {
-    question: `ขอบคุณที่ติดต่อ ${biz.name} ครับ สอบถามเรื่องอะไรได้เลยครับ`,
-    options: defaultOptions,
-  };
+  // Case A: no intent matched at all
+  if (topScore === 0) {
+    return {
+      question: `ขอบคุณที่ติดต่อ **${biz.name}** ครับ 😊\n\nขอทราบว่าสนใจเรื่องอะไรครับ?`,
+      options: defaultOptions,
+    };
+  }
+
+  // Case B: low-confidence match (score 2–3) — pipeline matched a trigger but weakly
+  // Only clarify if the message is substantive enough to warrant a real question
+  const LOW_CONFIDENCE_MAX = 3;
+  if (topScore <= LOW_CONFIDENCE_MAX && trimmed.length > 5) {
+    const guessedIntent = allScores[0].intent;
+    return {
+      question: `ขอทราบให้แน่ใจก่อนนะครับ — กำลังถามเรื่อง **${guessedIntent.name}** ใช่ไหมครับ?\n\nหรือสนใจเรื่องอื่นครับ?`,
+      options: [guessedIntent.name, ...defaultOptions.filter((o) => o !== guessedIntent.name).slice(0, 3)],
+    };
+  }
+
+  // Case C: top-2 intents are very close (tied) — could be either
+  if (topScore >= 2 && secondScore >= 2 && (topScore - secondScore) <= 1.5) {
+    const a = allScores[0].intent.name;
+    const b = allScores[1].intent.name;
+    return {
+      question: `ขอทราบให้ชัดขึ้นหน่อยได้ไหมครับ — ถามเรื่องอะไรครับ?`,
+      options: [a, b, ...defaultOptions.filter((o) => o !== a && o !== b).slice(0, 2)],
+    };
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1733,20 +1758,24 @@ export function generatePipelineResponseWithTrace(
   }
   addStep(13, "Clarification", "ไม่มีความคลุมเครือ", "skipped", t);
 
-  // ── LAYER 14: Context-aware fallback ──
+  // ── LAYER 14: Context-aware clarify (short messages only; longer → AI at Layer 15) ──
+  // Reaching Layer 14 means all pattern layers failed. Do NOT guess with a product card
+  // for substantive messages — let AI handle them at Layer 15.
   t = now();
-  if (ctx.activeProduct && allMessages.length > 2) {
+  if (ctx.activeProduct && allMessages.length > 2 && userMessage.trim().length <= 10) {
     const p = ctx.activeProduct;
-    addStep(14, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "matched", t, {
+    addStep(14, "Context Fallback", "ข้อความสั้น + มีบริบทสินค้า — ถามกลับ", "matched", t, {
       matchedProducts: [p.name],
     });
     finalLayer = 14;
     finalLayerName = `Context Fallback: ${p.name}`;
-    return finishTrace(
-      `เกี่ยวกับ **${p.name}** ครับ:\n\n${p.description.split("\n")[0]}\n💰 ราคา: **${p.price.toLocaleString()} บาท**\n\nสนใจสอบถามเรื่องไหนเพิ่มเติมครับ?\n- รายละเอียดสเปค\n- ประกัน\n- การสั่งซื้อ\n\nหรือจะดูสินค้าอื่นก็บอกได้เลยครับ!`
+    const clarifyResult = finishTrace(
+      `เกี่ยวกับ **${p.name}** ครับ — สอบถามเรื่องอะไรครับ?`
     );
+    clarifyResult.clarifyOptions = ["ราคา", "สเปค", "ประกัน", "สั่งซื้อ"];
+    return clarifyResult;
   }
-  addStep(14, "Context Fallback", "ใช้บริบทสนทนาตอบ fallback", "skipped", t);
+  addStep(14, "Context Fallback", "ข้อความยาว/ไม่มีบริบท — ส่งไป AI (Layer 15)", "skipped", t);
 
   // ── LAYER 15: Default fallback ──
   t = now();
