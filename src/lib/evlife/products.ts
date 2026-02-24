@@ -240,7 +240,7 @@ export const products: Product[] = [
     price: 39900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/d946ef/white?text=EM+Legend+G.2",
-    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Legend", "Legend G.2", "G.2", "Classic Iconic", "จดทะเบียนได้", "พร้อมส่ง", "คุ้มค่า", "EV Bike of the Year", "ผ่อน", "Tuxedo White", "Hunter Green", "Adven Grey", "Latte Brown"],
+    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Legend", "Legend G.2", "G.2", "Classic Iconic", "เลเจนด์", "เลเจน", "จดทะเบียนได้", "พร้อมส่ง", "คุ้มค่า", "EV Bike of the Year", "ผ่อน", "Tuxedo White", "Hunter Green", "Adven Grey", "Latte Brown"],
     status: "active",
   },
   {
@@ -250,7 +250,7 @@ export const products: Product[] = [
     price: 49900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/ef4444/white?text=EM+Legend+Pro",
-    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Legend Pro", "จดทะเบียนได้", "พร้อมส่ง", "ผ่อน", "Retro White", "All Black", "Ultima Grey", "Green Hunter"],
+    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Legend Pro", "เลเจนด์โปร", "เลเจนโปร", "จดทะเบียนได้", "พร้อมส่ง", "ผ่อน", "Retro White", "All Black", "Ultima Grey", "Green Hunter"],
     status: "active",
   },
   {
@@ -260,7 +260,7 @@ export const products: Product[] = [
     price: 58900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/8b5cf6/white?text=EM+Enzo",
-    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Enzo", "เรโทร", "อิตาเลียน", "จดทะเบียนได้"],
+    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Enzo", "เอนโซ่", "เอนโซ", "เรโทร", "อิตาเลียน", "จดทะเบียนได้"],
     status: "discontinue",
     recommendedAlternative: "EM Milano",
   },
@@ -271,7 +271,7 @@ export const products: Product[] = [
     price: 59900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/f97316/white?text=EM+Milano",
-    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Milano", "จดทะเบียนได้", "สปอร์ต", "พลังสูง", "ผ่อน", "White Paladin", "Black Knight"],
+    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Milano", "มิลาโน่", "มิลาโน", "จดทะเบียนได้", "สปอร์ต", "พลังสูง", "ผ่อน", "White Paladin", "Black Knight"],
     status: "active",
   },
   {
@@ -281,7 +281,7 @@ export const products: Product[] = [
     price: 87200,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/10b981/white?text=EM+Owen+LR",
-    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Owen", "Owen LR", "Long Range", "ระยะทางไกล", "จดทะเบียนได้"],
+    tags: ["มอเตอร์ไซค์ไฟฟ้า", "EM", "Owen", "Owen LR", "โอเว่น", "Long Range", "ระยะทางไกล", "จดทะเบียนได้"],
     status: "active",
   },
 

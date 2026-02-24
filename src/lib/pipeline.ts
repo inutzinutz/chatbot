@@ -1068,9 +1068,20 @@ export function generatePipelineResponseWithTrace(
       case "warranty_info":
       case "battery_symptom":
       case "support_inquiry":
-      case "em_motorcycle_service":
         intentResponse = intent.responseTemplate;
         break;
+      case "em_motorcycle_service":
+      case "specific_color_stock":
+      case "quotation_request": {
+        // These always escalate to admin — bot cannot check live stock, issue quotes, or service
+        addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = `Intent: ${intent.name}`;
+        finalIntent = intent.id;
+        const escalResult = finishTrace(biz.buildAdminEscalationResponse());
+        escalResult.isAdminEscalation = true;
+        return escalResult;
+      }
       case "discontinued_model":
         // Let Layer 4 (matchDiscontinued) handle this; if somehow missed, use template
         intentResponse = intent.responseTemplate;
