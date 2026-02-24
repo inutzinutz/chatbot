@@ -89,7 +89,8 @@ async function verifySignature(
     return false;
   }
   if (expected.length !== decoded.length) return false;
-  return require("crypto").timingSafeEqual(expected, decoded);
+  const { timingSafeEqual } = await import("crypto");
+  return timingSafeEqual(expected, decoded);
 }
 
 // ── Reply to LINE via Reply API ──

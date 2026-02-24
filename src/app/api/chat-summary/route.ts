@@ -7,7 +7,7 @@ export const runtime = "nodejs";
  * GET /api/chat-summary?businessId=xxx&userId=yyy
  *
  * Returns the stored ChatSummary for a conversation, or null if none exists.
- * Used by the edge /api/chat route to inject prior conversation context into
+ * Used by the /api/chat route to inject prior conversation context into
  * the AI system prompt for long-running conversations.
  */
 export async function GET(req: NextRequest) {
@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
   try {
     const summary = await chatStore.getChatSummary(businessId, userId);
     return NextResponse.json({ summary: summary ?? null });
-  } catch {
-    return NextResponse.json({ summary: null });
+  } catch (err) {
+    console.error("[chat-summary] GET error:", err);
+    return NextResponse.json(
+      { error: "Failed to fetch summary" },
+      { status: 500 }
+    );
   }
 }

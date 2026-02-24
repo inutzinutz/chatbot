@@ -15,36 +15,44 @@ function getProductsByBusiness(businessId: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const businessId = searchParams.get("businessId") || "dji13store";
-  const query = searchParams.get("q")?.toLowerCase() || "";
-  const category = searchParams.get("category")?.toLowerCase() || "";
-  const status = searchParams.get("status")?.toLowerCase() || "";
+  try {
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get("businessId") || "dji13store";
+    const query = searchParams.get("q")?.toLowerCase() || "";
+    const category = searchParams.get("category")?.toLowerCase() || "";
+    const status = searchParams.get("status")?.toLowerCase() || "";
 
-  let filtered = [...getProductsByBusiness(businessId)];
+    let filtered = [...getProductsByBusiness(businessId)];
 
-  if (query) {
-    filtered = filtered.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.description.toLowerCase().includes(query)
+    if (query) {
+      filtered = filtered.filter(
+        (p) =>
+          p.name.toLowerCase().includes(query) ||
+          p.description.toLowerCase().includes(query)
+      );
+    }
+
+    if (category) {
+      filtered = filtered.filter(
+        (p) => p.category.toLowerCase() === category
+      );
+    }
+
+    if (status) {
+      filtered = filtered.filter(
+        (p) => p.status?.toLowerCase() === status
+      );
+    }
+
+    return NextResponse.json({
+      total: filtered.length,
+      products: filtered,
+    });
+  } catch (err) {
+    console.error("[products] GET error:", err);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
     );
   }
-
-  if (category) {
-    filtered = filtered.filter(
-      (p) => p.category.toLowerCase() === category
-    );
-  }
-
-  if (status) {
-    filtered = filtered.filter(
-      (p) => p.status?.toLowerCase() === status
-    );
-  }
-
-  return NextResponse.json({
-    total: filtered.length,
-    products: filtered,
-  });
 }

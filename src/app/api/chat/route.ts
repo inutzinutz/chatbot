@@ -8,42 +8,12 @@ import {
   buildSystemPromptParts,
   type ChatMessage,
 } from "@/lib/pipeline";
+import { isUserRateLimited } from "@/lib/rateLimit";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 function now() {
   return performance.now();
-}
-
-// ─────────────────────────────────────────────────────────────
-// Rate Limiting — sliding window, per IP, in-memory (edge)
-// 30 requests per 60 seconds per IP address
-// ─────────────────────────────────────────────────────────────
-
-const RATE_LIMIT_MAX = 30;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-// Map<ip, timestamps[]>
-const rateLimitStore = new Map<string, number[]>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
-
-  // Get existing timestamps, drop those outside the window
-  const timestamps = (rateLimitStore.get(ip) ?? []).filter((t) => t > windowStart);
-  timestamps.push(now);
-  rateLimitStore.set(ip, timestamps);
-
-  // Evict entries older than 5 minutes to prevent memory leak
-  if (rateLimitStore.size > 10_000) {
-    const cutoff = now - 5 * 60_000;
-    for (const [key, ts] of rateLimitStore.entries()) {
-      if (ts[ts.length - 1] < cutoff) rateLimitStore.delete(key);
-    }
-  }
-
-  return timestamps.length > RATE_LIMIT_MAX;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -57,14 +27,15 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-real-ip") ||
     "unknown";
 
-  if (isRateLimited(ip)) {
+  // ── Rate limit check — Redis sliding window, 30 req / 60 s per IP ──
+  if (await isUserRateLimited("web", ip, 30, 60)) {
     return NextResponse.json(
       { content: "ขออภัยครับ คุณส่งข้อความถี่เกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้งครับ" },
       {
         status: 429,
         headers: {
           "Retry-After": "60",
-          "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+          "X-RateLimit-Limit": "30",
           "X-RateLimit-Window": "60s",
         },
       }
