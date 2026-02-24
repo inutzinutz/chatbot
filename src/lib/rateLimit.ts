@@ -46,7 +46,8 @@ export async function isUserRateLimited(
       await redis.expire(key, windowSec * 2);
     }
     return count > maxMessages;
-  } catch {
+  } catch (err) {
+    console.error("[rateLimit] isUserRateLimited Redis error:", err);
     return false; // fail open on Redis error
   }
 }
@@ -66,7 +67,8 @@ export async function isReplyTokenProcessed(replyToken: string): Promise<boolean
     // SET key 1 NX EX 300 — returns "OK" if set (first time), null if already exists
     const result = await redis.set(`rtok:${replyToken}`, "1", "EX", 300, "NX");
     return result === null; // null = key already existed = already processed
-  } catch {
+  } catch (err) {
+    console.error("[rateLimit] isReplyTokenProcessed Redis error:", err);
     return false; // fail open on Redis error
   }
 }

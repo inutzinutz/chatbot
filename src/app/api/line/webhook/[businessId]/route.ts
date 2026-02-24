@@ -6,6 +6,11 @@ import {
   type ChatMessage,
 } from "@/lib/pipeline";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
+import { isUserRateLimited, isReplyTokenProcessed } from "@/lib/rateLimit";
+import { buildLineFlexCarousel } from "@/lib/carouselBuilder";
+import { logTokenUsage } from "@/lib/tokenTracker";
+import { autoExtractCRM } from "@/lib/crmExtract";
+import { trackFunnelEvent } from "@/lib/funnelTracker";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -138,9 +143,12 @@ function stripMarkdown(text: string): string {
 
 async function callGptFallback(
   userMessage: string,
-  systemPrompt: string
+  systemPrompt: string,
+  businessId: string,
+  history: { role: string; content: string }[] = []
 ): Promise<string | null> {
   const messages: { role: string; content: string }[] = [
+    ...history,
     { role: "user", content: userMessage },
   ];
 
@@ -165,12 +173,15 @@ async function callGptFallback(
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { content?: { text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
         const text = data.content?.[0]?.text;
-        if (text) return text;
+        if (text) {
+          logTokenUsage({ businessId, model: "claude-sonnet-4-20250514", callSite: "line_claude", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
+          return text;
+        }
       }
     } catch (err) {
-      console.error("[LINE webhook] Claude API error:", err);
+      console.error("[LINE webhook/path] Claude API error:", err);
     }
   }
 
@@ -200,12 +211,15 @@ async function callGptFallback(
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { choices?: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
         const text = data.choices?.[0]?.message?.content;
-        if (text) return text;
+        if (text) {
+          logTokenUsage({ businessId, model: "gpt-4o-mini", callSite: "line_openai", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
+          return text;
+        }
       }
     } catch (err) {
-      console.error("[LINE webhook] OpenAI API error:", err);
+      console.error("[LINE webhook/path] OpenAI API error:", err);
     }
   }
 
@@ -331,23 +345,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       diag.userId = followUserId;
       if (followUserId && lineSettings?.welcomeMessage) {
         try {
-          const profile = await fetchLineProfile(followUserId, accessToken);
-          await chatStore.getOrCreateConversation(businessId, followUserId, {
-            displayName: profile?.displayName,
-            pictureUrl: profile?.pictureUrl,
-            statusMessage: profile?.statusMessage,
-            source: "line",
-          });
-          const welcomeText = stripMarkdown(lineSettings.welcomeMessage);
-          await pushToLine(followUserId, welcomeText, accessToken);
-          await chatStore.addMessage(businessId, followUserId, {
-            role: "bot",
-            content: welcomeText,
-            timestamp: Date.now(),
-            pipelineLayer: 0,
-            pipelineLayerName: "Welcome Message",
-          });
-          diag.sentWelcome = true;
+          // Only send welcome if global bot is on
+          const globalBotOnFollow = await chatStore.isGlobalBotEnabled(businessId);
+          if (globalBotOnFollow) {
+            const profile = await fetchLineProfile(followUserId, accessToken);
+            await chatStore.getOrCreateConversation(businessId, followUserId, {
+              displayName: profile?.displayName,
+              pictureUrl: profile?.pictureUrl,
+              statusMessage: profile?.statusMessage,
+              source: "line",
+            });
+            const welcomeText = stripMarkdown(lineSettings.welcomeMessage);
+            await pushToLine(followUserId, welcomeText, accessToken);
+            await chatStore.addMessage(businessId, followUserId, {
+              role: "bot",
+              content: welcomeText,
+              timestamp: Date.now(),
+              pipelineLayer: 0,
+              pipelineLayerName: "Welcome Message",
+            });
+            diag.sentWelcome = true;
+          } else {
+            diag.skipped = "follow_global_bot_disabled";
+          }
         } catch (err) {
           diag.welcomeError = String(err);
         }
@@ -358,9 +378,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       continue;
     }
 
-    // Only handle text messages
+    // Only handle text messages (path-based route handles text only)
     if (event.type !== "message" || event.message?.type !== "text") {
-      diag.skipped = true;
+      diag.skipped = `unhandled_${event.type}_${event.message?.type ?? ""}`;
       results.push(diag);
       continue;
     }
@@ -373,12 +393,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
       continue;
     }
 
+    // ── Idempotency: skip if this replyToken was already processed ──
+    const alreadyDone = await isReplyTokenProcessed(replyToken);
+    if (alreadyDone) {
+      diag.skipped = "duplicate_reply_token";
+      results.push(diag);
+      continue;
+    }
+
     const lineUserId = event.source?.userId || "";
     diag.userText = userText;
     diag.userId = lineUserId;
 
+    // ── Per-userId rate limiting (20 msgs/min) ──
+    if (lineUserId) {
+      const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
+      if (limited) {
+        diag.skipped = "rate_limited";
+        results.push(diag);
+        continue;
+      }
+    }
+
     try {
-      // ── Fetch user profile (first time) & ensure conversation exists ──
+      // ── Fetch user profile & ensure conversation exists ──
       let profile: { displayName: string; pictureUrl?: string; statusMessage?: string } | null = null;
       if (lineUserId) {
         profile = await fetchLineProfile(lineUserId, accessToken);
@@ -451,16 +489,41 @@ export async function POST(req: NextRequest, context: RouteContext) {
         continue;
       }
 
-      // ── Run pipeline ──
+      // ── Run pipeline — load history for context ──
+      const recentMsgs = await chatStore.getMessages(businessId, lineUserId);
+      const historyMessages: ChatMessage[] = recentMsgs
+        .filter((m) => m.role === "customer" || m.role === "bot")
+        .slice(-20)
+        .map((m) => ({
+          role: m.role === "customer" ? "user" : "assistant",
+          content: m.content,
+        }));
+      // Exclude the just-stored customer message to avoid double-counting
+      const historyWithoutCurrent = historyMessages.slice(0, -1);
       const chatMessages: ChatMessage[] = [
+        ...historyWithoutCurrent,
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation } =
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts } =
         generatePipelineResponseWithTrace(userText, chatMessages, biz);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
+
+      // ── Funnel tracking (fire-and-forget) ──
+      if (pipelineTrace.finalLayer === 6 && pipelineTrace.finalLayerName) {
+        const intentIdMatch = pipelineTrace.steps.find((s) => s.layer === 6)?.details?.intentId;
+        if (intentIdMatch) {
+          try {
+            const Redis = (await import("ioredis")).default;
+            const g = globalThis as unknown as { __redis?: InstanceType<typeof Redis> };
+            if (g.__redis) {
+              trackFunnelEvent(businessId, lineUserId, intentIdMatch as string, g.__redis).catch(() => {});
+            }
+          } catch { /* Non-fatal */ }
+        }
+      }
 
       // ── Cancel Escalation confirmed by pipeline — log system message ──
       if (isCancelEscalation) {
@@ -472,15 +535,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
         diag.cancelEscalationConfirmed = true;
       }
 
-      // ── Admin Escalation (Layer 1): pin + disable bot + notify admin ──
+      // ── Admin Escalation: pin + disable bot + notify admin ──
       if (isAdminEscalation) {
         await chatStore.pinConversation(
           businessId,
           lineUserId,
-          `ลูกค้าขอคุยกับเจ้าหน้าที่ (L1 escalation)`
+          `ลูกค้าขอคุยกับเจ้าหน้าที่ (escalation)`
         );
 
-        // Notify admin via LINE Push if ADMIN_LINE_USER_ID is configured
         const adminNotifyUserId = (process.env as Record<string, string | undefined>)[
           envKey(businessId, "ADMIN_LINE_USER_ID")
         ] || process.env.ADMIN_LINE_USER_ID;
@@ -489,52 +551,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
           try {
             await fetch("https://api.line.me/v2/bot/message/push", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
               body: JSON.stringify({
                 to: adminNotifyUserId,
-                messages: [
-                  {
-                    type: "text",
-                    text: `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"`,
-                  },
-                ],
+                messages: [{ type: "text", text: `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"` }],
               }),
             });
-          } catch {
-            // Non-critical: notification failure should not block reply
-          }
+          } catch { /* Non-critical */ }
         }
 
-        // Send escalation reply to customer, then stop bot
         const escalationReply = stripMarkdown(pipelineContent);
-        try {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken,
-              messages: [{ type: "text", text: escalationReply }],
-            }),
-          });
-        } catch { /* reply token may expire */ }
+        const escalReplyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ replyToken, messages: [{ type: "text", text: escalationReply.length > 5000 ? escalationReply.slice(0, 4997) + "..." : escalationReply }] }),
+        }).catch(() => null);
 
+        if (escalReplyRes?.ok) {
+          await chatStore.addMessage(businessId, lineUserId, {
+            role: "bot", content: escalationReply, timestamp: Date.now(),
+            pipelineLayer: pipelineTrace.finalLayer, pipelineLayerName: "Safety: Admin Escalation",
+          });
+        }
         await chatStore.addMessage(businessId, lineUserId, {
-          role: "bot",
-          content: escalationReply,
-          timestamp: Date.now(),
-          pipelineLayer: 1,
-          pipelineLayerName: "Safety: Admin Escalation",
-        });
-        await chatStore.addMessage(businessId, lineUserId, {
-          role: "admin",
-          content: `[ระบบ] ปักหมุดอัตโนมัติ — ลูกค้าขอคุยกับเจ้าหน้าที่ บอทหยุดตอบแล้ว`,
-          timestamp: Date.now(),
+          role: "admin", content: `[ระบบ] ปักหมุดอัตโนมัติ — ลูกค้าขอคุยกับเจ้าหน้าที่ บอทหยุดตอบแล้ว`, timestamp: Date.now(),
         });
 
         diag.escalated = true;
@@ -546,38 +586,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       // ── Auto-pin: returning user (2hr+ gap) + deep fallback (L12+) ──
       if (isReturningUser && pipelineTrace.finalLayer >= 12) {
-        const gapHours = Math.round(
-          (Date.now() - previousLastMessageAt) / (1000 * 60 * 60)
-        );
-        await chatStore.pinConversation(
-          businessId,
-          lineUserId,
-          `ข้อความไม่ต่อเนื่อง (L${pipelineTrace.finalLayer}, gap: ${gapHours}h)`
-        );
+        const gapHours = Math.round((Date.now() - previousLastMessageAt) / (1000 * 60 * 60));
+        await chatStore.pinConversation(businessId, lineUserId, `ข้อความไม่ต่อเนื่อง (L${pipelineTrace.finalLayer}, gap: ${gapHours}h)`);
         await chatStore.addMessage(businessId, lineUserId, {
-          role: "admin",
-          content: `[ระบบ] ปักหมุดอัตโนมัติ — ข้อความไม่ต่อเนื่อง (gap: ${gapHours}h, L${pipelineTrace.finalLayer}) รอแอดมินตอบ`,
-          timestamp: Date.now(),
+          role: "admin", content: `[ระบบ] ปักหมุดอัตโนมัติ — ข้อความไม่ต่อเนื่อง (gap: ${gapHours}h, L${pipelineTrace.finalLayer}) รอแอดมินตอบ`, timestamp: Date.now(),
         });
-        // Send brief acknowledgment to customer
-        try {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken,
-              messages: [
-                {
-                  type: "text",
-                  text: "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ",
-                },
-              ],
-            }),
-          });
-        } catch { /* reply token may expire */ }
+        await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ replyToken, messages: [{ type: "text", text: "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ" }] }),
+        }).catch(() => {});
         diag.autoPinned = true;
         diag.skippedReason = "auto_pinned_discontinuous";
         results.push(diag);
@@ -586,11 +604,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       let replyText = "";
 
-      if (pipelineTrace.finalLayer < 14) {
+      if (pipelineTrace.finalLayer <= 14) {
         replyText = pipelineContent;
       } else {
-        const systemPrompt = buildSystemPrompt(biz);
-        const gptResponse = await callGptFallback(userText, systemPrompt);
+        const chatSummary = await chatStore.getChatSummary(businessId, lineUserId).catch(() => null);
+        const systemPrompt = buildSystemPrompt(biz, undefined, chatSummary);
+        const gptResponse = await callGptFallback(userText, systemPrompt, businessId, historyWithoutCurrent);
         replyText = gptResponse || pipelineContent;
         diag.gptUsed = !!gptResponse;
       }
@@ -599,7 +618,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         replyText = "ขออภัยครับ ไม่สามารถตอบได้ในขณะนี้ กรุณาลองใหม่อีกครั้งครับ";
       }
 
-      // Strip markdown for plain-text LINE
       replyText = stripMarkdown(replyText);
       diag.replyLength = replyText.length;
       diag.replyPreview = replyText.slice(0, 80);
@@ -611,68 +629,50 @@ export async function POST(req: NextRequest, context: RouteContext) {
         await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
       }
 
-      // ── Store bot reply message ──
-      await chatStore.addMessage(businessId, lineUserId, {
-        role: "bot",
-        content: replyText,
-        timestamp: Date.now(),
-        pipelineLayer: pipelineTrace.finalLayer,
-        pipelineLayerName: pipelineTrace.finalLayerName,
-      });
+      // ── Build messages array (text + optional Flex carousel) ──
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lineMessages: any[] = [
+        { type: "text", text: replyText.length > 5000 ? replyText.slice(0, 4997) + "..." : replyText },
+      ];
+      if (carouselProducts && carouselProducts.length > 0) {
+        try {
+          const flexMsg = buildLineFlexCarousel(carouselProducts, `แนะนำสินค้า ${carouselProducts.length} รายการ`);
+          lineMessages.push(flexMsg);
+          diag.sentCarousel = true;
+          diag.carouselCount = carouselProducts.length;
+        } catch (flexErr) {
+          console.error("[LINE webhook/path] buildLineFlexCarousel error:", flexErr);
+        }
+      }
 
       // ── Send reply via LINE ──
       const replyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text:
-                replyText.length > 5000
-                  ? replyText.slice(0, 4997) + "..."
-                  : replyText,
-            },
-          ],
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ replyToken, messages: lineMessages }),
       });
 
       diag.replyApiStatus = replyRes.status;
       if (!replyRes.ok) {
         diag.replyApiError = await replyRes.text().catch(() => "");
       } else {
+        // ── Store bot reply only after confirmed sent ──
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "bot",
+          content: replyText,
+          timestamp: Date.now(),
+          pipelineLayer: pipelineTrace.finalLayer,
+          pipelineLayerName: pipelineTrace.finalLayerName,
+        });
         diag.replyApiOk = true;
+
+        // ── CRM auto-extract (fire-and-forget) ──
+        autoExtractCRM(businessId, lineUserId).catch(() => {});
       }
     } catch (err) {
       diag.error = String(err);
-
-      // Best-effort reply on error
-      try {
-        if (event.replyToken) {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken: event.replyToken,
-              messages: [
-                {
-                  type: "text",
-                  text: "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ",
-                },
-              ],
-            }),
-          });
-        }
-      } catch {
-        // Reply token may have expired
-      }
+      console.error(`[LINE webhook/path] Error processing event for ${businessId}:`, err);
+      // Do NOT send error reply — avoids replying when bot toggles may be off
     }
 
     results.push(diag);

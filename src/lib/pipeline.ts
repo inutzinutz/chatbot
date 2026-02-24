@@ -1003,7 +1003,7 @@ export function generatePipelineResponseWithTrace(
         // Signal to the webhook: re-enable bot + unpin, then reply normally
         const cancelResult = finishTrace(intent.responseTemplate);
         cancelResult.isCancelEscalation = true;
-        cancelResult.clarifyOptions = ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
+        cancelResult.clarifyOptions = biz.categoryChecks.slice(0, 4).map((c) => c.label);
         addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
         finalLayer = 6;
         finalLayerName = `Intent: ${intent.name}`;
@@ -1015,12 +1015,12 @@ export function generatePipelineResponseWithTrace(
         // instead of the full welcome message to avoid repeating it every time
         const isReturningGreet = allMessages.length > 2;
         const greetText = isReturningGreet
-          ? "สวัสดีครับ! มีอะไรให้ช่วยเพิ่มเติมไหมครับ? 😊"
+          ? "สวัสดีครับ! มีอะไรให้ช่วยเพิ่มเติมไหมครับ?"
           : intent.responseTemplate;
         const greetResult = finishTrace(greetText);
         greetResult.clarifyOptions = isReturningGreet
           ? []
-          : ["แบตเตอรี่รถ EV", "มอเตอร์ไซค์ EM", "ราคา/โปรโมชั่น", "บริการถึงบ้าน"];
+          : biz.categoryChecks.slice(0, 4).map((c) => c.label);
         addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
         finalLayer = 6;
         finalLayerName = `Intent: ${intent.name}`;
@@ -1160,9 +1160,17 @@ export function generatePipelineResponseWithTrace(
         }
         break;
       }
-      case "admin_escalation":
-        intentResponse = biz.buildAdminEscalationResponse();
-        break;
+      case "admin_escalation": {
+        // Layer 6 admin_escalation: must also set isAdminEscalation flag
+        // so the webhook pins the conversation and disables the bot
+        addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = `Intent: ${intent.name}`;
+        finalIntent = intent.id;
+        const escalL6Result = finishTrace(biz.buildAdminEscalationResponse());
+        escalL6Result.isAdminEscalation = true;
+        return escalL6Result;
+      }
       case "budget_recommendation": {
         const budgetMatch = lower.match(/(\d[\d,]*)\s*(บาท|฿)?/);
         const budget = budgetMatch

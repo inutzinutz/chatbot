@@ -492,8 +492,13 @@ class ChatStore {
 
   /** Check if bot is enabled for a conversation */
   async isBotEnabled(businessId: string, userId: string): Promise<boolean> {
-    const conv = await getJSON<ChatConversation>(convKey(businessId, userId));
-    return conv?.botEnabled ?? true; // Default: bot enabled
+    try {
+      const conv = await getJSON<ChatConversation>(convKey(businessId, userId));
+      return conv?.botEnabled ?? true; // Default: bot enabled
+    } catch (err) {
+      console.error("[chatStore] isBotEnabled Redis error:", err);
+      return true; // fail-open: allow bot to run
+    }
   }
 
   /** Mark conversation as read (reset unread count) */
@@ -560,8 +565,13 @@ class ChatStore {
 
   /** Check if global bot is enabled for a business (default: enabled) */
   async isGlobalBotEnabled(businessId: string): Promise<boolean> {
-    const val = await redis.get(`globalbot:${businessId}`);
-    return val !== "0"; // Default: enabled (null or "1")
+    try {
+      const val = await redis.get(`globalbot:${businessId}`);
+      return val !== "0"; // Default: enabled (null or "1")
+    } catch (err) {
+      console.error("[chatStore] isGlobalBotEnabled Redis error:", err);
+      return true; // fail-open: allow bot to run
+    }
   }
 
   // ── Vision Feature Toggle ──
@@ -578,9 +588,14 @@ class ChatStore {
    * Returns Redis value if set; otherwise falls back to defaultEnabled (from businessConfig).
    */
   async isVisionEnabled(businessId: string, defaultEnabled = true): Promise<boolean> {
-    const val = await redis.get(`vision:${businessId}`);
-    if (val === null) return defaultEnabled; // not set → use config default
-    return val !== "0";
+    try {
+      const val = await redis.get(`vision:${businessId}`);
+      if (val === null) return defaultEnabled; // not set → use config default
+      return val !== "0";
+    } catch (err) {
+      console.error("[chatStore] isVisionEnabled Redis error:", err);
+      return defaultEnabled; // fail-open: use config default
+    }
   }
 
   // ── Follow-up Agent ──

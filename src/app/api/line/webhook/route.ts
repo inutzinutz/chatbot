@@ -562,24 +562,29 @@ export async function POST(req: NextRequest) {
       diag.userId = followUserId;
       if (followUserId && lineSettings?.welcomeMessage) {
         try {
-          // Fetch profile & create conversation record
-          const profile = await fetchLineProfile(followUserId, accessToken);
-          await chatStore.getOrCreateConversation(businessId, followUserId, {
-            displayName: profile?.displayName,
-            pictureUrl: profile?.pictureUrl,
-            statusMessage: profile?.statusMessage,
-            source: "line",
-          });
-          const welcomeText = stripMarkdown(lineSettings.welcomeMessage);
-          await pushToLine(followUserId, welcomeText, accessToken);
-          await chatStore.addMessage(businessId, followUserId, {
-            role: "bot",
-            content: welcomeText,
-            timestamp: Date.now(),
-            pipelineLayer: 0,
-            pipelineLayerName: "Welcome Message",
-          });
-          diag.sentWelcome = true;
+          // Only send welcome if global bot is on
+          const globalBotOnFollow = await chatStore.isGlobalBotEnabled(businessId);
+          if (globalBotOnFollow) {
+            const profile = await fetchLineProfile(followUserId, accessToken);
+            await chatStore.getOrCreateConversation(businessId, followUserId, {
+              displayName: profile?.displayName,
+              pictureUrl: profile?.pictureUrl,
+              statusMessage: profile?.statusMessage,
+              source: "line",
+            });
+            const welcomeText = stripMarkdown(lineSettings.welcomeMessage);
+            await pushToLine(followUserId, welcomeText, accessToken);
+            await chatStore.addMessage(businessId, followUserId, {
+              role: "bot",
+              content: welcomeText,
+              timestamp: Date.now(),
+              pipelineLayer: 0,
+              pipelineLayerName: "Welcome Message",
+            });
+            diag.sentWelcome = true;
+          } else {
+            diag.skipped = "follow_global_bot_disabled";
+          }
         } catch (err) {
           diag.welcomeError = String(err);
         }
@@ -637,14 +642,23 @@ export async function POST(req: NextRequest) {
     // ── Handle video messages ──
     if (msgType === "video") {
       if (replyToken && biz.features.videoReplyEnabled) {
-        // Check vision toggle (Redis) before replying
-        const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
-        if (visionOn) {
-          await replyToLine(
-            replyToken,
-            "ขอบคุณที่ส่งวิดีโอมาครับ!\n\nขออภัยครับ ระบบยังไม่รองรับการวิเคราะห์วิดีโออัตโนมัติ\n\nกรุณาส่งเป็น **รูปภาพ** (screenshot จากวิดีโอ) แทนได้เลยครับ แล้ว AI จะวิเคราะห์ให้ทันที!",
-            accessToken
-          );
+        // Check bot toggles before replying
+        const globalBotForVideo = await chatStore.isGlobalBotEnabled(businessId);
+        if (globalBotForVideo) {
+          const videoUserId = event.source?.userId || "";
+          const videoConv = videoUserId
+            ? await chatStore.getOrCreateConversation(businessId, videoUserId, { source: "line" })
+            : null;
+          if (videoConv?.botEnabled) {
+            const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
+            if (visionOn) {
+              await replyToLine(
+                replyToken,
+                "ขอบคุณที่ส่งวิดีโอมาครับ!\n\nขออภัยครับ ระบบยังไม่รองรับการวิเคราะห์วิดีโออัตโนมัติ\n\nกรุณาส่งเป็น รูปภาพ (screenshot จากวิดีโอ) แทนได้เลยครับ แล้ว AI จะวิเคราะห์ให้ทันที!",
+                accessToken
+              );
+            }
+          }
         }
       }
       diag.skipped = "video_not_analyzed";
@@ -672,21 +686,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Check vision toggle (Redis overrides config default)
-      const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
-      diag.visionEnabled = visionOn;
-
-      if (!visionOn) {
-        await replyToLine(
-          replyToken,
-          "ขอบคุณที่ส่งไฟล์มาครับ! ขณะนี้ระบบวิเคราะห์รูปภาพปิดอยู่ชั่วคราว กรุณาพิมพ์คำถามเป็นข้อความครับ",
-          accessToken
-        );
-        diag.skipped = "vision_disabled";
-        results.push(diag);
-        continue;
-      }
-
       // Check global bot + per-conversation bot enabled
       const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
       if (!globalBotEnabled) {
@@ -698,6 +697,21 @@ export async function POST(req: NextRequest) {
       const conv = await chatStore.getOrCreateConversation(businessId, lineUserId, { source: "line" });
       if (!conv.botEnabled) {
         diag.skipped = "bot_disabled";
+        results.push(diag);
+        continue;
+      }
+
+      // Check vision toggle (Redis overrides config default) — after bot checks
+      const visionOn = await chatStore.isVisionEnabled(businessId, biz.features.visionEnabled);
+      diag.visionEnabled = visionOn;
+
+      if (!visionOn) {
+        await replyToLine(
+          replyToken,
+          "ขอบคุณที่ส่งไฟล์มาครับ! ขณะนี้ระบบวิเคราะห์รูปภาพปิดอยู่ชั่วคราว กรุณาพิมพ์คำถามเป็นข้อความครับ",
+          accessToken
+        );
+        diag.skipped = "vision_disabled";
         results.push(diag);
         continue;
       }
@@ -881,14 +895,15 @@ export async function POST(req: NextRequest) {
       // ── Run pipeline — load history for context ──
       const recentMsgs = await chatStore.getMessages(businessId, lineUserId);
       // Map stored messages → ChatMessage format (last 20 turns, skip system/admin msgs)
+      // Exclude the just-stored customer message (last item) to avoid double-counting
       const historyMessages: ChatMessage[] = recentMsgs
         .filter((m) => m.role === "customer" || m.role === "bot")
-        .slice(-20)
+        .slice(-21, -1) // take up to 20 prior messages, excluding the just-stored one
         .map((m) => ({
           role: m.role === "customer" ? "user" : "assistant",
           content: m.content,
         }));
-      // Append current user message
+      // Append current user message once
       const chatMessages: ChatMessage[] = [
         ...historyMessages,
         { role: "user", content: userText },
@@ -1041,7 +1056,7 @@ export async function POST(req: NextRequest) {
 
       let replyText = "";
 
-      if (pipelineTrace.finalLayer < 14) {
+      if (pipelineTrace.finalLayer <= 14) {
         replyText = pipelineContent;
       } else {
         // Load prior conversation summary to inject as context into AI system prompt
@@ -1121,25 +1136,8 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       diag.error = String(err);
-
-      // Best-effort reply on error
-      try {
-        if (event.replyToken) {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken: event.replyToken,
-              messages: [{ type: "text", text: "ขออภัยครับ ระบบขัดข้อง กรุณาลองใหม่อีกครั้งครับ" }],
-            }),
-          });
-        }
-      } catch {
-        // Reply token may have expired
-      }
+      console.error(`[LINE webhook] Error processing event for ${businessId}:`, err);
+      // Do NOT send error reply — avoids replying when bot toggles may be off
     }
 
     results.push(diag);
