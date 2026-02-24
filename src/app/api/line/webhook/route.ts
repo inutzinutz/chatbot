@@ -613,13 +613,21 @@ export async function POST(req: NextRequest) {
 
     // ── Handle sticker / audio / location — polite acknowledgement ──
     if (["sticker", "audio", "location"].includes(msgType)) {
-      if (replyToken) {
-        const stickerReplies: Record<string, string> = {
-          sticker: "ขอบคุณสติ๊กเกอร์น่ารักๆ ครับ! มีอะไรให้ผมช่วยไหมครับ?",
-          audio: "ขอบคุณครับ! ขณะนี้ผมยังไม่รองรับข้อความเสียง กรุณาพิมพ์ข้อความครับ",
-          location: "ขอบคุณที่แชร์ตำแหน่งครับ! มีอะไรให้ผมช่วยเรื่องพื้นที่ใกล้เคียงไหมครับ?",
-        };
-        await replyToLine(replyToken, stickerReplies[msgType] || "ขอบคุณครับ!", accessToken);
+      // Respect bot toggles before replying
+      const globalBotEnabledForSticker = await chatStore.isGlobalBotEnabled(businessId);
+      if (globalBotEnabledForSticker) {
+        const lineUserIdForSticker = event.source?.userId || "";
+        const convForSticker = lineUserIdForSticker
+          ? await chatStore.getOrCreateConversation(businessId, lineUserIdForSticker, { source: "line" })
+          : null;
+        if (convForSticker?.botEnabled && replyToken) {
+          const stickerReplies: Record<string, string> = {
+            sticker: "ขอบคุณสติ๊กเกอร์น่ารักๆ ครับ! มีอะไรให้ผมช่วยไหมครับ?",
+            audio: "ขอบคุณครับ! ขณะนี้ผมยังไม่รองรับข้อความเสียง กรุณาพิมพ์ข้อความครับ",
+            location: "ขอบคุณที่แชร์ตำแหน่งครับ! มีอะไรให้ผมช่วยเรื่องพื้นที่ใกล้เคียงไหมครับ?",
+          };
+          await replyToLine(replyToken, stickerReplies[msgType] || "ขอบคุณครับ!", accessToken);
+        }
       }
       diag.skipped = `handled_${msgType}`;
       results.push(diag);
@@ -653,6 +661,13 @@ export async function POST(req: NextRequest) {
 
       if (!messageId || !replyToken) {
         diag.skipped = "no_message_id_or_token";
+        results.push(diag);
+        continue;
+      }
+
+      // If BU has vision disabled at config level → silently accept (no reply)
+      if (!biz.features.visionEnabled) {
+        diag.skipped = "vision_disabled_by_config";
         results.push(diag);
         continue;
       }
