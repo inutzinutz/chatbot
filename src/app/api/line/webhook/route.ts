@@ -980,25 +980,13 @@ export async function POST(req: NextRequest) {
 
         // Send escalation reply to customer, then stop bot
         const escalationReply = stripMarkdown(pipelineContent);
-        try {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken,
-              messages: [{ type: "text", text: escalationReply }],
-            }),
-          });
-        } catch { /* reply token may expire */ }
+        await replyToLine(replyToken, escalationReply, accessToken);
 
         await chatStore.addMessage(businessId, lineUserId, {
           role: "bot",
           content: escalationReply,
           timestamp: Date.now(),
-          pipelineLayer: 1,
+          pipelineLayer: pipelineTrace.finalLayer,
           pipelineLayerName: "Safety: Admin Escalation",
         });
         await chatStore.addMessage(businessId, lineUserId, {
@@ -1031,22 +1019,11 @@ export async function POST(req: NextRequest) {
         });
         // Send brief acknowledgment to customer
         try {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken,
-              messages: [
-                {
-                  type: "text",
-                  text: "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ",
-                },
-              ],
-            }),
-          });
+          await replyToLine(
+            replyToken,
+            "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ",
+            accessToken
+          );
         } catch { /* reply token may expire */ }
         diag.autoPinned = true;
         diag.skippedReason = "auto_pinned_discontinuous";
@@ -1082,15 +1059,6 @@ export async function POST(req: NextRequest) {
         diag.responseDelaySec = delaySec;
         await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
       }
-
-      // ── Store bot reply ──
-      await chatStore.addMessage(businessId, lineUserId, {
-        role: "bot",
-        content: replyText,
-        timestamp: Date.now(),
-        pipelineLayer: pipelineTrace.finalLayer,
-        pipelineLayerName: pipelineTrace.finalLayerName,
-      });
 
       // ── CRM auto-extract (fire-and-forget) ──
       autoExtractCRM(businessId, lineUserId).catch(() => {});
@@ -1133,6 +1101,14 @@ export async function POST(req: NextRequest) {
         diag.replyApiError = await replyRes.text().catch(() => "");
       } else {
         diag.replyApiOk = true;
+        // ── Store bot reply only after confirmed delivery ──
+        await chatStore.addMessage(businessId, lineUserId, {
+          role: "bot",
+          content: replyText,
+          timestamp: Date.now(),
+          pipelineLayer: pipelineTrace.finalLayer,
+          pipelineLayerName: pipelineTrace.finalLayerName,
+        });
       }
     } catch (err) {
       diag.error = String(err);

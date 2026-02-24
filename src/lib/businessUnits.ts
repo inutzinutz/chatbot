@@ -552,5 +552,8 @@ export const businessUnitList = [
 export const DEFAULT_BUSINESS_ID = "dji13store";
 
 export function getBusinessConfig(businessId: string): BusinessConfig {
+  if (!businessUnits[businessId]) {
+    console.warn(`[businessUnits] Unknown businessId "${businessId}" — falling back to default "${DEFAULT_BUSINESS_ID}"`);
+  }
   return businessUnits[businessId] || businessUnits[DEFAULT_BUSINESS_ID];
 }

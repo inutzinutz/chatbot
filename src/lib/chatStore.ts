@@ -243,13 +243,12 @@ export interface PendingWork {
 
 // ── Redis client singleton (reused across warm invocations) ──
 
-function createRedis(): Redis {
+function createRedis(): Redis | null {
   const url = process.env.REDIS_URL;
 
   if (!url) {
-    console.warn("[chatStore] Missing REDIS_URL env var.");
-    // Return a dummy — will throw on first actual use
-    return new Redis({ lazyConnect: true });
+    console.warn("[chatStore] Missing REDIS_URL env var — Redis disabled. All store operations will be no-ops.");
+    return null;
   }
 
   const client = new Redis(url, {
@@ -269,8 +268,8 @@ function createRedis(): Redis {
   return client;
 }
 
-const g = globalThis as unknown as { __redis?: Redis };
-if (!g.__redis) g.__redis = createRedis();
+const g = globalThis as unknown as { __redis?: Redis | null };
+if (!("__redis" in g)) g.__redis = createRedis();
 const redis = g.__redis;
 
 // ── Key helpers ──
@@ -291,6 +290,7 @@ function msgsKey(biz: string, uid: string) {
 // ── JSON helpers (ioredis stores/returns strings) ──
 
 async function getJSON<T>(key: string): Promise<T | null> {
+  if (!redis) return null;
   const raw = await redis.get(key);
   if (!raw) return null;
   try {
@@ -301,6 +301,7 @@ async function getJSON<T>(key: string): Promise<T | null> {
 }
 
 async function setJSON<T>(key: string, value: T): Promise<void> {
+  if (!redis) return;
   await redis.set(key, JSON.stringify(value));
 }
 
@@ -335,7 +336,7 @@ class ChatStore {
         existing.statusMessage = opts.statusMessage;
         updated = true;
       }
-      if (updated) {
+    if (updated) {
         await setJSON(ck, existing);
       }
       return existing;
@@ -357,7 +358,7 @@ class ChatStore {
       createdAt: Date.now(),
     };
     await setJSON(ck, conv);
-    await redis.zadd(convsKey(businessId), conv.lastMessageAt, userId);
+    if (redis) await redis.zadd(convsKey(businessId), conv.lastMessageAt, userId);
     return conv;
   }
 
@@ -376,6 +377,7 @@ class ChatStore {
     // This eliminates the rpush → llen → ltrim race condition where
     // concurrent writers could each read the same llen and skip the trim.
     const mk = msgsKey(businessId, userId);
+    if (!redis) return fullMsg; // no-op when Redis is unavailable
     const LUA_RPUSH_TRIM = `
       redis.call('RPUSH', KEYS[1], ARGV[1])
       redis.call('LTRIM', KEYS[1], -tonumber(ARGV[2]), -1)
@@ -401,13 +403,13 @@ class ChatStore {
       }
       await setJSON(ck, conv);
       // Update sorted set score
-      await redis.zadd(convsKey(businessId), msg.timestamp, userId);
+      if (redis) await redis.zadd(convsKey(businessId), msg.timestamp, userId);
     }
 
     // ── B1: Trigger conversation summarization every 20 messages ──
     // Fire-and-forget: don't await so we don't block the response
     try {
-      const currentLen = await redis.llen(mk);
+      const currentLen = redis ? await redis.llen(mk) : 0;
       if (currentLen > 0 && currentLen % 20 === 0) {
         const baseUrl = process.env.NEXTJS_URL ?? process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
@@ -430,6 +432,7 @@ class ChatStore {
 
   /** Get all messages for a conversation */
   async getMessages(businessId: string, userId: string): Promise<ChatMessage[]> {
+    if (!redis) return [];
     const raw = await redis.lrange(msgsKey(businessId, userId), 0, -1);
     return raw.map((item) => {
       try {
@@ -442,6 +445,7 @@ class ChatStore {
 
   /** Get all conversations for a business, sorted by most recent */
   async getConversations(businessId: string): Promise<ChatConversation[]> {
+    if (!redis) return [];
     // Get all userIds from sorted set, most recent first (REV)
     const userIds = await redis.zrange(convsKey(businessId), 0, -1, "REV");
 
@@ -519,6 +523,7 @@ class ChatStore {
 
   /** Delete a conversation and its messages */
   async deleteConversation(businessId: string, userId: string): Promise<void> {
+    if (!redis) return;
     await redis.del(convKey(businessId, userId));
     await redis.del(msgsKey(businessId, userId));
     await redis.zrem(convsKey(businessId), userId);
@@ -560,12 +565,14 @@ class ChatStore {
 
   /** Set global bot on/off for entire business */
   async setGlobalBotEnabled(businessId: string, enabled: boolean): Promise<void> {
+    if (!redis) return;
     await redis.set(`globalbot:${businessId}`, enabled ? "1" : "0");
   }
 
   /** Check if global bot is enabled for a business (default: enabled) */
   async isGlobalBotEnabled(businessId: string): Promise<boolean> {
     try {
+      if (!redis) return true;
       const val = await redis.get(`globalbot:${businessId}`);
       return val !== "0"; // Default: enabled (null or "1")
     } catch (err) {
@@ -580,6 +587,7 @@ class ChatStore {
 
   /** Set vision (image/file analysis) on/off for a business at runtime */
   async setVisionEnabled(businessId: string, enabled: boolean): Promise<void> {
+    if (!redis) return;
     await redis.set(`vision:${businessId}`, enabled ? "1" : "0");
   }
 
@@ -589,6 +597,7 @@ class ChatStore {
    */
   async isVisionEnabled(businessId: string, defaultEnabled = true): Promise<boolean> {
     try {
+      if (!redis) return defaultEnabled;
       const val = await redis.get(`vision:${businessId}`);
       if (val === null) return defaultEnabled; // not set → use config default
       return val !== "0";
@@ -607,6 +616,7 @@ class ChatStore {
     userId: string,
     data: FollowUpResult
   ): Promise<void> {
+    if (!redis) return;
     const key = `followup:${businessId}:${userId}`;
     await setJSON(key, data);
     // Auto-expire after 7 days
@@ -622,6 +632,7 @@ class ChatStore {
   }
 
   async getAllFollowUps(businessId: string): Promise<(FollowUpResult & { userId: string })[]> {
+    if (!redis) return [];
     const userIds = await redis.zrange(`followups:${businessId}`, 0, -1, "REV");
     if (!userIds || userIds.length === 0) return [];
 
@@ -647,6 +658,7 @@ class ChatStore {
   }
 
   async clearFollowUp(businessId: string, userId: string): Promise<void> {
+    if (!redis) return;
     await redis.del(`followup:${businessId}:${userId}`);
     await redis.zrem(`followups:${businessId}`, userId);
   }
@@ -656,6 +668,7 @@ class ChatStore {
   // Key: chatsums:{businessId}:{date}            → Sorted set (score=summarizedAt, member=userId), TTL 30 days
 
   async saveChatSummary(summary: ChatSummary): Promise<void> {
+    if (!redis) return;
     const key = `chatsum:${summary.businessId}:${summary.userId}`;
     await setJSON(key, summary);
     await redis.expire(key, 60 * 60 * 24 * 7);
@@ -670,6 +683,7 @@ class ChatStore {
   }
 
   async getChatSummariesByDate(businessId: string, date: string): Promise<ChatSummary[]> {
+    if (!redis) return [];
     const dateKey = `chatsums:${businessId}:${date}`;
     const userIds = await redis.zrange(dateKey, 0, -1, "REV");
     if (!userIds || userIds.length === 0) return [];
@@ -688,6 +702,7 @@ class ChatStore {
   }
 
   async getAllChatSummaries(businessId: string, limit = 100): Promise<ChatSummary[]> {
+    if (!redis) return [];
     // Get all conversation userIds, most recent first
     const userIds = await redis.zrange(convsKey(businessId), 0, limit - 1, "REV");
     if (!userIds || userIds.length === 0) return [];
@@ -709,6 +724,7 @@ class ChatStore {
   // Key: dailydigest:{businessId}:{date} → JSON<DailyDigest>, TTL 30 days
 
   async saveDailyDigest(digest: DailyDigest): Promise<void> {
+    if (!redis) return;
     const key = `dailydigest:${digest.businessId}:${digest.date}`;
     await setJSON(key, digest);
     await redis.expire(key, 60 * 60 * 24 * 30);
@@ -791,6 +807,7 @@ class ChatStore {
   }
 
   async setLineSettings(businessId: string, settings: LineChannelSettings): Promise<void> {
+    if (!redis) return;
     await setJSON(`linesettings:${businessId}`, settings);
   }
 
@@ -799,6 +816,7 @@ class ChatStore {
   // Entry key:  adminlogentry:{businessId}:{entryId}    value=JSON
 
   async logAdminActivity(entry: Omit<AdminActivityEntry, "id">): Promise<void> {
+    if (!redis) return;
     const id = randomUUID();
     const full: AdminActivityEntry = { ...entry, id };
     const entryKey = `adminlogentry:${entry.businessId}:${id}`;
@@ -813,6 +831,7 @@ class ChatStore {
     businessId: string,
     opts?: { limit?: number; offset?: number; username?: string }
   ): Promise<AdminActivityEntry[]> {
+    if (!redis) return [];
     const limit = opts?.limit ?? 100;
     const offset = opts?.offset ?? 0;
     // Most recent first (REV)
@@ -848,6 +867,7 @@ class ChatStore {
     businessId: string,
     since?: number
   ): Promise<Record<string, { sent: number; toggleBot: number; pin: number; lastActive: number }>> {
+    if (!redis) return {};
     // Pull last 1000 entries for stats
     const ids = await redis.zrange(`adminlog:${businessId}`, 0, 999, "REV");
     if (!ids || ids.length === 0) return {};
@@ -883,20 +903,23 @@ class ChatStore {
   // ── CRM Notes ──
 
   async getCRMNotes(businessId: string, userId: string): Promise<CRMNote[]> {
+    if (!redis) return [];
     const raw = await redis.get(`crmnotes:${businessId}:${userId}`);
     if (!raw) return [];
     try { return JSON.parse(raw) as CRMNote[]; } catch { return []; }
   }
 
   async addCRMNote(businessId: string, userId: string, text: string, createdBy: string): Promise<CRMNote> {
-    const notes = await this.getCRMNotes(businessId, userId);
     const note: CRMNote = { id: randomUUID(), text, createdBy, createdAt: Date.now() };
+    if (!redis) return note;
+    const notes = await this.getCRMNotes(businessId, userId);
     notes.push(note);
     await redis.set(`crmnotes:${businessId}:${userId}`, JSON.stringify(notes));
     return note;
   }
 
   async deleteCRMNote(businessId: string, userId: string, noteId: string): Promise<void> {
+    if (!redis) return;
     const notes = await this.getCRMNotes(businessId, userId);
     const filtered = notes.filter((n) => n.id !== noteId);
     await redis.set(`crmnotes:${businessId}:${userId}`, JSON.stringify(filtered));
@@ -923,30 +946,34 @@ class ChatStore {
   // ── Quick Reply Templates ──
 
   async getTemplates(businessId: string): Promise<QuickReplyTemplate[]> {
+    if (!redis) return [];
     const raw = await redis.get(`templates:${businessId}`);
     if (!raw) return [];
     try { return JSON.parse(raw) as QuickReplyTemplate[]; } catch { return []; }
   }
 
   async saveTemplate(businessId: string, template: Omit<QuickReplyTemplate, "id" | "createdAt">): Promise<QuickReplyTemplate> {
-    const templates = await this.getTemplates(businessId);
     const newTemplate: QuickReplyTemplate = {
       id: randomUUID(),
       createdAt: Date.now(),
       ...template,
     };
+    if (!redis) return newTemplate;
+    const templates = await this.getTemplates(businessId);
     templates.push(newTemplate);
     await redis.set(`templates:${businessId}`, JSON.stringify(templates));
     return newTemplate;
   }
 
   async deleteTemplate(businessId: string, templateId: string): Promise<void> {
+    if (!redis) return;
     const templates = await this.getTemplates(businessId);
     const filtered = templates.filter((t) => t.id !== templateId);
     await redis.set(`templates:${businessId}`, JSON.stringify(filtered));
   }
 
   async updateTemplate(businessId: string, templateId: string, updates: Partial<Pick<QuickReplyTemplate, "title" | "text">>): Promise<void> {
+    if (!redis) return;
     const templates = await this.getTemplates(businessId);
     const idx = templates.findIndex((t) => t.id === templateId);
     if (idx >= 0) {
@@ -963,6 +990,7 @@ class ChatStore {
   async logCorrection(entry: Omit<CorrectionEntry, "id">): Promise<CorrectionEntry> {
     const id = randomUUID();
     const full: CorrectionEntry = { ...entry, id };
+    if (!redis) return full;
     const entryKey = `correction:${entry.businessId}:${id}`;
     await setJSON(entryKey, full);
     await redis.expire(entryKey, 180 * 24 * 60 * 60);
@@ -973,6 +1001,7 @@ class ChatStore {
   }
 
   async getCorrections(businessId: string, limit = 50): Promise<CorrectionEntry[]> {
+    if (!redis) return [];
     const ids = await redis.zrange(`corrections:${businessId}`, 0, limit - 1, "REV");
     if (!ids.length) return [];
     const pipeline = redis.pipeline();
@@ -1003,12 +1032,14 @@ class ChatStore {
   }
 
   async saveCRMProfile(profile: CRMProfile): Promise<void> {
+    if (!redis) return;
     await setJSON(`crm:${profile.businessId}:${profile.userId}`, profile);
     // Also add to the business index set (score = updatedAt for sorting)
     await redis.zadd(`crmindex:${profile.businessId}`, profile.updatedAt ?? profile.createdAt, profile.userId);
   }
 
   async getAllCRMProfiles(businessId: string, limit = 200): Promise<CRMProfile[]> {
+    if (!redis) return [];
     // Pull most-recently-updated first
     const userIds = await redis.zrange(`crmindex:${businessId}`, 0, limit - 1, "REV");
     if (!userIds.length) return [];
@@ -1031,6 +1062,7 @@ class ChatStore {
   }
 
   async deleteCRMProfile(businessId: string, userId: string): Promise<void> {
+    if (!redis) return;
     await redis.del(`crm:${businessId}:${userId}`);
     await redis.zrem(`crmindex:${businessId}`, userId);
   }
