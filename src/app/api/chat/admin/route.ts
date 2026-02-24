@@ -6,7 +6,8 @@ import { verifySessionToken, SESSION_COOKIE, requireAdminSession, unauthorizedRe
 import { buildLineFlexCarousel, buildFbGenericCarousel } from "@/lib/carouselBuilder";
 import { products as dji13products } from "@/lib/products";
 import { products as evlifeProducts } from "@/lib/evlife/products";
-import { products as dji13serviceProducts } from "@/lib/dji13support/products";
+import { products as dji13supportProducts } from "@/lib/dji13support/products";
+import { products as dji13serviceProducts } from "@/lib/dji13service/products";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -46,12 +47,10 @@ function getFbAccessToken(businessId: string): string {
 
 function getProductsForBusiness(businessId: string) {
   switch (businessId) {
-    case "evlifethailand":
-      return evlifeProducts;
-    case "dji13support":
-      return dji13serviceProducts;
-    default:
-      return dji13products;
+    case "evlifethailand": return evlifeProducts;
+    case "dji13support":   return dji13supportProducts;
+    case "dji13service":   return dji13serviceProducts;
+    default:               return dji13products;
   }
 }
 

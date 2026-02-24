@@ -16,7 +16,7 @@
 /* ------------------------------------------------------------------ */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getBusinessConfig, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+import { getBusinessConfig, isValidBusinessId } from "@/lib/businessUnits";
 import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
@@ -169,7 +169,10 @@ async function getFbUserProfile(
 /* ------------------------------------------------------------------ */
 
 export async function GET(req: NextRequest) {
-  const businessId = req.nextUrl.searchParams.get("businessId") || DEFAULT_BUSINESS_ID;
+  const businessId = req.nextUrl.searchParams.get("businessId") || "";
+  if (!businessId || !isValidBusinessId(businessId)) {
+    return new Response(`Unknown businessId: "${businessId}"`, { status: 400 });
+  }
   const mode = req.nextUrl.searchParams.get("hub.mode");
   const token = req.nextUrl.searchParams.get("hub.verify_token");
   const challenge = req.nextUrl.searchParams.get("hub.challenge");
@@ -191,7 +194,12 @@ export async function GET(req: NextRequest) {
 /* ------------------------------------------------------------------ */
 
 export async function POST(req: NextRequest) {
-  const businessId = req.nextUrl.searchParams.get("businessId") || DEFAULT_BUSINESS_ID;
+  const businessId = req.nextUrl.searchParams.get("businessId") || "";
+  if (!businessId || !isValidBusinessId(businessId)) {
+    console.error(`[FB webhook] Rejected unknown businessId: "${businessId}"`);
+    // Return 200 to prevent Facebook from retrying forever
+    return NextResponse.json({ error: `Unknown businessId: ${businessId}` }, { status: 200 });
+  }
   const biz = getBusinessConfig(businessId);
 
   // Parse body

@@ -556,7 +556,7 @@ function buildDetailedEMResponse(p: Product, biz: BusinessConfig): string {
  */
 function buildEMCatalogResponse(products: Product[], biz: BusinessConfig): string {
   const lines: string[] = [];
-  lines.push("EV Life Thailand เป็นตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM อย่างเป็นทางการครับ");
+  lines.push(`${biz.name} เป็นตัวแทนจำหน่ายมอเตอร์ไซค์ไฟฟ้า EM อย่างเป็นทางการครับ`);
   lines.push("");
   lines.push("รุ่นที่มีจำหน่าย:");
 

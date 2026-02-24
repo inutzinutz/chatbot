@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
 import { getBusinessConfig } from "@/lib/businessUnits";
-
-// Simple auth check — same pattern as /api/auth
-function isAuthorized(req: NextRequest): boolean {
-  const auth = req.headers.get("x-admin-token") || req.nextUrl.searchParams.get("token") || "";
-  return auth === (process.env.ADMIN_SECRET || "evlifethailand-admin");
-}
+import { requireAdminSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -125,7 +120,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
   }
 
-  if (!isAuthorized(req)) {
+  const session = await requireAdminSession(req, businessId);
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

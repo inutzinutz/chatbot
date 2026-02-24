@@ -7,16 +7,12 @@
 /*  TTL: 2 * window size (auto-cleanup)                               */
 /* ------------------------------------------------------------------ */
 
-import Redis from "ioredis";
-
-const g = globalThis as unknown as { __redis_rl?: Redis };
-if (!g.__redis_rl && process.env.REDIS_URL) {
-  g.__redis_rl = new Redis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: 2,
-    connectTimeout: 3000,
-    retryStrategy: (t) => (t > 2 ? null : Math.min(t * 100, 500)),
-  });
-  g.__redis_rl.on("error", () => {}); // suppress logs
+// Reuse the shared Redis singleton from chatStore instead of creating
+// a second connection pool. Both modules write to the same REDIS_URL
+// so sharing one client saves connection slots on Vercel.
+function getRedis() {
+  const g = globalThis as unknown as { __redis?: import("ioredis").default | null };
+  return g.__redis ?? null;
 }
 
 /**
@@ -33,7 +29,7 @@ export async function isUserRateLimited(
   maxMessages = 20,
   windowSec = 60
 ): Promise<boolean> {
-  const redis = g.__redis_rl;
+  const redis = getRedis();
   if (!redis) return false; // fail open: no redis → allow
 
   try {
@@ -61,14 +57,15 @@ export async function isUserRateLimited(
  * Returns true if the token was ALREADY processed (skip it).
  * Returns false if this is the FIRST time we see this token (process it).
  *
+ * Key is namespaced by businessId so auditing/cleanup is scoped per BU.
  * TTL = 5 minutes (LINE replyToken expires in 1 minute, so 5 min is safe)
  */
-export async function isReplyTokenProcessed(replyToken: string): Promise<boolean> {
-  const redis = g.__redis_rl;
+export async function isReplyTokenProcessed(businessId: string, replyToken: string): Promise<boolean> {
+  const redis = getRedis();
   if (!redis) return false; // fail open: no redis → allow processing
   try {
     // SET key 1 NX EX 300 — returns "OK" if set (first time), null if already exists
-    const result = await redis.set(`rtok:${replyToken}`, "1", "EX", 300, "NX");
+    const result = await redis.set(`rtok:${businessId}:${replyToken}`, "1", "EX", 300, "NX");
     return result === null; // null = key already existed = already processed
   } catch (err) {
     console.error("[rateLimit] isReplyTokenProcessed Redis error:", err);
@@ -85,7 +82,7 @@ export async function getUserRateCount(
   userId: string,
   windowSec = 60
 ): Promise<number> {
-  const redis = g.__redis_rl;
+  const redis = getRedis();
   if (!redis) return 0;
   try {
     const window = Math.floor(Date.now() / (windowSec * 1000));

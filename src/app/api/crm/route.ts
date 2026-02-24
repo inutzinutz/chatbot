@@ -42,7 +42,8 @@ Format ที่ต้องการ (ถ้าไม่มีข้อมู�
 
 async function extractWithAI(
   messages: { role: string; content: string }[],
-  displayName: string
+  displayName: string,
+  businessId: string
 ): Promise<Partial<CRMProfile> | null> {
   // Build conversation text (last 40 messages, customer only)
   const convText = messages
@@ -77,7 +78,7 @@ async function extractWithAI(
       if (res.ok) {
         const data = await res.json() as { content?: { text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
         const text = data.content?.[0]?.text?.trim() || "";
-        logTokenUsage({ businessId: "crm", model: "claude-haiku-4-5", callSite: "crm_extract", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
+        logTokenUsage({ businessId, model: "claude-haiku-4-5", callSite: "crm_extract", promptTokens: data.usage?.input_tokens ?? 0, completionTokens: data.usage?.output_tokens ?? 0 }).catch(() => {});
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) return JSON.parse(jsonMatch[0]);
       }
@@ -105,7 +106,7 @@ async function extractWithAI(
       if (res.ok) {
         const data = await res.json() as { choices?: { message: { content: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number } };
         const text = data.choices?.[0]?.message?.content || "{}";
-        logTokenUsage({ businessId: "crm", model: "gpt-4o-mini", callSite: "crm_extract", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
+        logTokenUsage({ businessId, model: "gpt-4o-mini", callSite: "crm_extract", promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 }).catch(() => {});
         return JSON.parse(text);
       }
     } catch { /* fallthrough */ }
@@ -188,7 +189,8 @@ export async function POST(req: NextRequest) {
 
     const extracted = await extractWithAI(
       msgs.map((m) => ({ role: m.role, content: m.content })),
-      conv.displayName || userId
+      conv.displayName || userId,
+      businessId
     );
 
     if (!extracted) return NextResponse.json({ error: "AI extraction failed — no API key or empty chat" }, { status: 422 });

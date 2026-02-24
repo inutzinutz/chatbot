@@ -51,23 +51,17 @@ function envKey(businessId: string, suffix: string): string {
 }
 
 function getLineSecret(businessId: string): string {
-  return (
-    (process.env as Record<string, string | undefined>)[
-      envKey(businessId, "LINE_CHANNEL_SECRET")
-    ] ||
-    process.env.LINE_CHANNEL_SECRET ||
-    ""
-  );
+  const key = envKey(businessId, "LINE_CHANNEL_SECRET");
+  const val = (process.env as Record<string, string | undefined>)[key];
+  if (!val) console.error(`[LINE webhook] Missing env var: ${key}`);
+  return val || "";
 }
 
 function getLineAccessToken(businessId: string): string {
-  return (
-    (process.env as Record<string, string | undefined>)[
-      envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN")
-    ] ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-    ""
-  );
+  const key = envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN");
+  const val = (process.env as Record<string, string | undefined>)[key];
+  if (!val) console.error(`[LINE webhook] Missing env var: ${key}`);
+  return val || "";
 }
 
 // ── HMAC-SHA256 signature verification (Web Crypto for Edge) ──
@@ -623,7 +617,7 @@ export async function POST(req: NextRequest) {
     // ── Idempotency: skip if this replyToken was already processed ──
     // LINE may retry webhook delivery — guard against duplicate bot replies
     if (replyToken) {
-      const alreadyDone = await isReplyTokenProcessed(replyToken);
+      const alreadyDone = await isReplyTokenProcessed(businessId, replyToken);
       if (alreadyDone) {
         diag.skipped = "duplicate_reply_token";
         results.push(diag);
@@ -1256,7 +1250,7 @@ export async function GET(req: NextRequest) {
         },
         body: JSON.stringify({
           to: pushTo,
-          messages: [{ type: "text", text: "ทดสอบจาก EV Life Thailand Bot - ระบบทำงานปกติครับ!" }],
+          messages: [{ type: "text", text: `ทดสอบจาก ${getBusinessConfig(businessId).name} Bot - ระบบทำงานปกติครับ!` }],
         }),
       });
       const pushBody = await pushRes.text().catch(() => "");

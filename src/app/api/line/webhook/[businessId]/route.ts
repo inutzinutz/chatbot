@@ -39,23 +39,17 @@ function envKey(businessId: string, suffix: string): string {
 }
 
 function getLineSecret(businessId: string): string {
-  return (
-    (process.env as Record<string, string | undefined>)[
-      envKey(businessId, "LINE_CHANNEL_SECRET")
-    ] ||
-    process.env.LINE_CHANNEL_SECRET ||
-    ""
-  );
+  const key = envKey(businessId, "LINE_CHANNEL_SECRET");
+  const val = (process.env as Record<string, string | undefined>)[key];
+  if (!val) console.error(`[LINE webhook/${businessId}] Missing env var: ${key}`);
+  return val || "";
 }
 
 function getLineAccessToken(businessId: string): string {
-  return (
-    (process.env as Record<string, string | undefined>)[
-      envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN")
-    ] ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-    ""
-  );
+  const key = envKey(businessId, "LINE_CHANNEL_ACCESS_TOKEN");
+  const val = (process.env as Record<string, string | undefined>)[key];
+  if (!val) console.error(`[LINE webhook/${businessId}] Missing env var: ${key}`);
+  return val || "";
 }
 
 // ── HMAC-SHA256 signature verification ──
@@ -442,7 +436,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // ── Idempotency: skip if this replyToken was already processed ──
-    const alreadyDone = await isReplyTokenProcessed(replyToken);
+    const alreadyDone = await isReplyTokenProcessed(businessId, replyToken);
     if (alreadyDone) {
       diag.skipped = "duplicate_reply_token";
       results.push(diag);
@@ -902,7 +896,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
           messages: [
             {
               type: "text",
-              text: `[Path-based webhook] ทดสอบจาก EV Life Thailand Bot - ระบบทำงานปกติครับ! Route: /api/line/webhook/${businessId}`,
+              text: `[Path-based webhook] ทดสอบจาก ${getBusinessConfig(businessId).name} Bot - ระบบทำงานปกติครับ! Route: /api/line/webhook/${businessId}`,
             },
           ],
         }),
