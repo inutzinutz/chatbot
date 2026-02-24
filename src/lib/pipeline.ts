@@ -959,20 +959,41 @@ export function generatePipelineResponseWithTrace(
   // ── LAYER 5: Conversation Context Resolution ──
   t = now();
   if (ctx.isFollowUp && ctx.activeProduct) {
-    const contextResponse = buildContextualResponse(ctx, userMessage, biz);
-    if (contextResponse) {
-      addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา", "matched", t, {
-        intent: `follow-up: ${ctx.recentTopic || "general"}`,
-        matchedProducts: [ctx.activeProduct.name],
-        matchedTriggers: FOLLOW_UP_PATTERNS.filter((p) => lower.includes(p)),
+    // Safety gate: if this message scores high on an escalation intent, skip Layer 5
+    // so the intent engine (Layer 6) can handle it correctly.
+    // This prevents "ขอใบเสนอราคา", "ซ่อมรถ", "มีรถไหม" from being answered as a
+    // product follow-up just because a product was recently mentioned.
+    const ESCALATION_INTENT_IDS = new Set([
+      "em_motorcycle_service",
+      "specific_color_stock",
+      "quotation_request",
+      "admin_escalation",
+    ]);
+    const preScore = scoreIntents(userMessage, biz);
+    const preTop = preScore.length > 0 && preScore[0].score >= 2 ? preScore[0] : null;
+    const isEscalationIntent = preTop && ESCALATION_INTENT_IDS.has(preTop.intent.id);
+
+    if (isEscalationIntent) {
+      addStep(5, "Context Resolution", `ข้าม Layer 5 — intent "${preTop!.intent.id}" ต้อง escalate`, "skipped", t, {
+        intent: preTop!.intent.id,
+        score: preTop!.score,
       });
-      finalLayer = 5;
-      finalLayerName = `Context: ${ctx.activeProduct.name} → ${ctx.recentTopic || "detail"}`;
-      return finishTrace(contextResponse);
+    } else {
+      const contextResponse = buildContextualResponse(ctx, userMessage, biz);
+      if (contextResponse) {
+        addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา", "matched", t, {
+          intent: `follow-up: ${ctx.recentTopic || "general"}`,
+          matchedProducts: [ctx.activeProduct.name],
+          matchedTriggers: FOLLOW_UP_PATTERNS.filter((p) => lower.includes(p)),
+        });
+        finalLayer = 5;
+        finalLayerName = `Context: ${ctx.activeProduct.name} → ${ctx.recentTopic || "detail"}`;
+        return finishTrace(contextResponse);
+      }
+      addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา (ไม่จับ topic ได้)", "checked", t, {
+        matchedProducts: [ctx.activeProduct.name],
+      });
     }
-    addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา (ไม่จับ topic ได้)", "checked", t, {
-      matchedProducts: [ctx.activeProduct.name],
-    });
   } else if (ctx.isFollowUp && !ctx.activeProduct) {
     // Follow-up but no product in context — ask which product the customer means
     // Only do this when the message is genuinely short/ambiguous (not a new question)
