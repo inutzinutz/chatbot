@@ -98,8 +98,10 @@ export async function POST(req: NextRequest) {
 
     // ══════════════════════════════════════════════════════
     // STEP 1: ALWAYS run the 15-layer pipeline FIRST
+    // Web chat is stateless (edge runtime) — pass pendingForm from request body if provided
     // ══════════════════════════════════════════════════════
-    const pipelineResult = generatePipelineResponseWithTrace(userMessage, messages, biz);
+    const { pendingForm: clientPendingForm } = body as { pendingForm?: import("@/lib/chatStore").PendingForm | null };
+    const pipelineResult = generatePipelineResponseWithTrace(userMessage, messages, biz, clientPendingForm ?? null);
     const { content: pipelineContent, trace: pipelineTrace } = pipelineResult;
 
     // ══════════════════════════════════════════════════════
@@ -113,6 +115,10 @@ export async function POST(req: NextRequest) {
         ...(pipelineResult.clarifyOptions ? { clarifyOptions: pipelineResult.clarifyOptions } : {}),
         ...(pipelineResult.carouselProducts && pipelineResult.carouselProducts.length > 0
           ? { carouselProducts: pipelineResult.carouselProducts }
+          : {}),
+        // Return pendingFormUpdate so web client can persist it for next request
+        ...(pipelineResult.pendingFormUpdate !== undefined
+          ? { pendingFormUpdate: pipelineResult.pendingFormUpdate }
           : {}),
       });
     }

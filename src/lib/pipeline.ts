@@ -6,7 +6,7 @@ import { type Product } from "@/lib/products";
 import { type BusinessConfig } from "@/lib/businessUnits";
 import type { PipelineStep, PipelineTrace } from "@/lib/inspector";
 import { recommendProducts } from "@/lib/carouselBuilder";
-import type { ChatSummary } from "@/lib/chatStore";
+import type { ChatSummary, PendingForm, QuotationFormData } from "@/lib/chatStore";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -48,6 +48,12 @@ export interface TracedResult {
    * LINE webhook should re-enable bot + unpin conversation when this is set.
    */
   isCancelEscalation?: boolean;
+  /**
+   * When set, the webhook must persist this form state back to chatStore.
+   * - PendingForm object: save/update the form (mid-collection)
+   * - null: clear the form (collection complete or cancelled)
+   */
+  pendingFormUpdate?: PendingForm | null;
   /**
    * When set, the channel (LINE/FB/Web) should send a product carousel
    * in addition to (or instead of) the text content.
@@ -859,7 +865,8 @@ function now() {
 export function generatePipelineResponseWithTrace(
   userMessage: string,
   allMessages: ChatMessage[],
-  biz: BusinessConfig
+  biz: BusinessConfig,
+  pendingForm?: PendingForm | null
 ): TracedResult {
   const pipelineStart = now();
   const lower = userMessage.toLowerCase();
@@ -886,7 +893,101 @@ export function generatePipelineResponseWithTrace(
     });
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // QUOTATION FORM — multi-turn data collection
+  // ─────────────────────────────────────────────────────────────
 
+  /** Steps in the quotation form — in order */
+  const QUOTATION_STEPS: Array<{
+    key: keyof QuotationFormData;
+    question: string;
+    label: string;
+  }> = [
+    { key: "items",   label: "รายการสินค้า/บริการ",       question: "ขอทราบรายการสินค้าหรือบริการที่ต้องการใบเสนอราคาด้วยครับ 📋\n(เช่น EM Milano 1 คัน, EM Legend Pro 2 คัน)" },
+    { key: "orgName", label: "ชื่อหน่วยงาน/บริษัท",       question: "ขอทราบชื่อหน่วยงานหรือบริษัทที่จะออกใบเสนอราคาให้ด้วยครับ 🏢" },
+    { key: "address", label: "ที่อยู่",                   question: "ขอที่อยู่สำหรับออกใบเสนอราคาด้วยครับ 📍\n(เลขที่ ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์)" },
+    { key: "taxId",   label: "เลขที่ผู้เสียภาษี",         question: "ขอเลขที่ผู้เสียภาษี (13 หลัก) ด้วยครับ 🔢" },
+    { key: "phone",   label: "เบอร์โทรติดต่อ",            question: "ขอเบอร์โทรศัพท์สำหรับให้เจ้าหน้าที่ติดต่อกลับด้วยครับ 📞" },
+  ];
+
+  /** Cancel keywords — customer wants to abort the form */
+  const FORM_CANCEL_KEYWORDS = ["ยกเลิก", "cancel", "ไม่เอาแล้ว", "เลิก", "หยุด", "stop", "ออก"];
+
+  // ── LAYER -1: Pending Quotation Form (runs before everything else) ──
+  if (pendingForm?.type === "quotation") {
+    const t0 = now();
+    const msg = userMessage.trim();
+
+    // Allow customer to cancel mid-form
+    if (FORM_CANCEL_KEYWORDS.some((k) => msg.toLowerCase().includes(k))) {
+      addStep(-1, "Quotation Form", "ลูกค้ายกเลิก form — ล้าง state", "matched", t0);
+      finalLayer = -1;
+      finalLayerName = "Quotation Form: cancelled";
+      const cancelResult = finishTrace(
+        "ยกเลิกการขอใบเสนอราคาแล้วครับ 👍\n\nถ้าต้องการใบเสนอราคาในภายหลัง พิมพ์ \"ขอใบเสนอราคา\" ได้เลยนะครับ!"
+      );
+      cancelResult.pendingFormUpdate = null; // clear form
+      return cancelResult;
+    }
+
+    const currentStep = pendingForm.step;
+    const stepDef = QUOTATION_STEPS[currentStep];
+
+    if (stepDef) {
+      // Save the answer to current step
+      const updatedData: Partial<QuotationFormData> = {
+        ...pendingForm.data,
+        [stepDef.key]: msg,
+      };
+      const nextStep = currentStep + 1;
+
+      if (nextStep < QUOTATION_STEPS.length) {
+        // More steps to collect
+        const nextStepDef = QUOTATION_STEPS[nextStep];
+        addStep(-1, "Quotation Form", `เก็บ "${stepDef.label}" → ถาม "${nextStepDef.label}"`, "matched", t0, {
+          intent: `quotation_form:step_${currentStep}→${nextStep}`,
+        });
+        finalLayer = -1;
+        finalLayerName = `Quotation Form: step ${nextStep}/${QUOTATION_STEPS.length}`;
+        const midResult = finishTrace(
+          `รับทราบแล้วครับ ✅\n\n${nextStepDef.question}`
+        );
+        midResult.pendingFormUpdate = {
+          type: "quotation",
+          step: nextStep,
+          data: updatedData,
+        };
+        return midResult;
+      } else {
+        // All steps done — build summary and escalate
+        const finalData = updatedData as QuotationFormData;
+        const summary = [
+          "📋 **ข้อมูลสำหรับออกใบเสนอราคา**",
+          "",
+          `• รายการ: ${finalData.items}`,
+          `• หน่วยงาน/บริษัท: ${finalData.orgName}`,
+          `• ที่อยู่: ${finalData.address}`,
+          `• เลขที่ผู้เสียภาษี: ${finalData.taxId}`,
+          `• เบอร์โทร: ${finalData.phone}`,
+        ].join("\n");
+
+        addStep(-1, "Quotation Form", "เก็บข้อมูลครบแล้ว — escalate แอดมิน", "matched", t0, {
+          intent: "quotation_form:complete",
+        });
+        finalLayer = -1;
+        finalLayerName = "Quotation Form: complete → escalate";
+
+        const doneText =
+          `ขอบคุณครับ! ได้รับข้อมูลครบแล้วครับ 🙏\n\n${summary}\n\n` +
+          `ทีมงานจะจัดทำใบเสนอราคาและติดต่อกลับที่เบอร์ **${finalData.phone}** โดยเร็วที่สุดครับ ⏰`;
+
+        const doneResult = finishTrace(doneText);
+        doneResult.pendingFormUpdate = null; // clear form
+        doneResult.isAdminEscalation = true; // pin + notify admin
+        return doneResult;
+      }
+    }
+  }
 
   // ── LAYER 0: Conversation Context Extraction ──
   let t = now();
@@ -1092,9 +1193,8 @@ export function generatePipelineResponseWithTrace(
         intentResponse = intent.responseTemplate;
         break;
       case "em_motorcycle_service":
-      case "specific_color_stock":
-      case "quotation_request": {
-        // These always escalate to admin — bot cannot check live stock, issue quotes, or service
+      case "specific_color_stock": {
+        // These always escalate to admin immediately — bot cannot check live stock or handle service
         addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
         finalLayer = 6;
         finalLayerName = `Intent: ${intent.name}`;
@@ -1102,6 +1202,23 @@ export function generatePipelineResponseWithTrace(
         const escalResult = finishTrace(biz.buildAdminEscalationResponse());
         escalResult.isAdminEscalation = true;
         return escalResult;
+      }
+      case "quotation_request": {
+        // Start the quotation form — bot collects details before escalating
+        addStep(6, "Intent Engine", "จับ intent ใบเสนอราคา — เริ่ม form", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = "Intent: quotation_request → form start";
+        finalIntent = intent.id;
+        const firstStep = QUOTATION_STEPS[0];
+        const formStartResult = finishTrace(
+          `ยินดีช่วยจัดทำใบเสนอราคาให้ครับ! 📄\n\nขอเก็บข้อมูลเพื่อให้เจ้าหน้าที่ติดต่อกลับนะครับ\n(พิมพ์ "ยกเลิก" ได้ทุกเมื่อ)\n\n${firstStep.question}`
+        );
+        formStartResult.pendingFormUpdate = {
+          type: "quotation",
+          step: 0,
+          data: {},
+        };
+        return formStartResult;
       }
       case "discontinued_model":
         // Let Layer 4 (matchDiscontinued) handle this; if somehow missed, use template

@@ -926,11 +926,20 @@ export async function POST(req: NextRequest) {
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts } =
-        generatePipelineResponseWithTrace(userText, chatMessages, biz);
+      // Load pending form state (for multi-turn quotation collection)
+      const convForForm = await chatStore.getConversation(businessId, lineUserId);
+      const pendingForm = convForForm?.pendingForm ?? null;
+
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts, pendingFormUpdate } =
+        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
+
+      // ── Pending Form Update (multi-turn quotation) ──
+      if (pendingFormUpdate !== undefined) {
+        await chatStore.setPendingForm(businessId, lineUserId, pendingFormUpdate);
+      }
 
       // ── Funnel tracking (fire-and-forget) ──
       // Track conversion stage based on matched intent (layer 6 = Intent Engine)
@@ -961,10 +970,13 @@ export async function POST(req: NextRequest) {
 
       // ── Admin Escalation (Layer 1): pin + disable bot + notify admin ──
       if (isAdminEscalation) {
+        const isQuotationComplete = pendingFormUpdate === null && pipelineTrace.finalLayerName?.includes("quotation");
         await chatStore.pinConversation(
           businessId,
           lineUserId,
-          `ลูกค้าขอคุยกับเจ้าหน้าที่ (L1 escalation)`
+          isQuotationComplete
+            ? "ลูกค้าขอใบเสนอราคา — ข้อมูลครบแล้ว รอเจ้าหน้าที่จัดทำ"
+            : "ลูกค้าขอคุยกับเจ้าหน้าที่ (L1 escalation)"
         );
 
         // Notify admin via LINE Push (send to admin LINE userId if configured)
@@ -973,6 +985,9 @@ export async function POST(req: NextRequest) {
         ] || process.env.ADMIN_LINE_USER_ID;
 
         if (adminNotifyUserId && accessToken) {
+          const adminNotifyText = isQuotationComplete
+            ? `[ใบเสนอราคา] ลูกค้าส่งข้อมูลครบแล้ว\nBusiness: ${biz.name}\nUser: ${lineUserId}\n\n${pipelineContent}`
+            : `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"`;
           try {
             await fetch("https://api.line.me/v2/bot/message/push", {
               method: "POST",
@@ -982,12 +997,7 @@ export async function POST(req: NextRequest) {
               },
               body: JSON.stringify({
                 to: adminNotifyUserId,
-                messages: [
-                  {
-                    type: "text",
-                    text: `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"`,
-                  },
-                ],
+                messages: [{ type: "text", text: adminNotifyText }],
               }),
             });
           } catch {

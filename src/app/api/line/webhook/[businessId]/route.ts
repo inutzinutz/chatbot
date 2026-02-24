@@ -554,8 +554,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
         { role: "user", content: userText },
       ];
 
-      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts } =
-        generatePipelineResponseWithTrace(userText, chatMessages, biz);
+      // Load pending form state (for multi-turn quotation collection)
+      const convForForm = await chatStore.getConversation(businessId, lineUserId);
+      const pendingForm = convForForm?.pendingForm ?? null;
+
+      const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts, pendingFormUpdate } =
+        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;
@@ -574,6 +578,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
         }
       }
 
+      // ── Pending Form Update (multi-turn quotation) ──
+      if (pendingFormUpdate !== undefined) {
+        // undefined = no change; null = clear form; PendingForm = update
+        await chatStore.setPendingForm(businessId, lineUserId, pendingFormUpdate);
+      }
+
       // ── Cancel Escalation confirmed by pipeline — log system message ──
       if (isCancelEscalation) {
         await chatStore.addMessage(businessId, lineUserId, {
@@ -586,10 +596,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       // ── Admin Escalation: pin + disable bot + notify admin ──
       if (isAdminEscalation) {
+        // For quotation-complete escalation, use a more specific reason
+        const escalReason = pendingFormUpdate === null && pipelineTrace.finalLayerName?.includes("quotation")
+          ? "ลูกค้าขอใบเสนอราคา — ข้อมูลครบแล้ว รอเจ้าหน้าที่จัดทำ"
+          : "ลูกค้าขอคุยกับเจ้าหน้าที่ (escalation)";
         await chatStore.pinConversation(
           businessId,
           lineUserId,
-          `ลูกค้าขอคุยกับเจ้าหน้าที่ (escalation)`
+          escalReason
         );
 
         const adminNotifyUserId = (process.env as Record<string, string | undefined>)[
@@ -597,13 +611,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
         ] || process.env.ADMIN_LINE_USER_ID;
 
         if (adminNotifyUserId && accessToken) {
+          const isQuotationComplete = pendingFormUpdate === null && pipelineTrace.finalLayerName?.includes("quotation");
+          const adminNotifyText = isQuotationComplete
+            ? `[ใบเสนอราคา] ลูกค้าส่งข้อมูลครบแล้ว\nBusiness: ${biz.name}\nUser: ${lineUserId}\n\n${pipelineContent}`
+            : `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"`;
           try {
             await fetch("https://api.line.me/v2/bot/message/push", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
               body: JSON.stringify({
                 to: adminNotifyUserId,
-                messages: [{ type: "text", text: `[แจ้งเตือน] ลูกค้าขอคุยกับเจ้าหน้าที่\nBusiness: ${biz.name}\nUser: ${lineUserId}\nข้อความ: "${userText}"` }],
+                messages: [{ type: "text", text: adminNotifyText }],
               }),
             });
           } catch { /* Non-critical */ }

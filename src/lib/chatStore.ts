@@ -51,6 +51,36 @@ export interface ChatConversation {
   assignedAt?: number;
   /** Timestamp of last admin message — used for auto re-enable after inactivity */
   adminLastReplyAt?: number;
+  /**
+   * Active multi-turn form being filled by the customer.
+   * Set by the pipeline when a form intent is triggered; cleared when form is complete.
+   */
+  pendingForm?: PendingForm;
+}
+
+/**
+ * A multi-turn form that the bot is collecting from the customer.
+ * Currently only "quotation" is supported.
+ */
+export interface PendingForm {
+  type: "quotation";
+  /** Which field is being collected next (0-based index into QUOTATION_FIELDS) */
+  step: number;
+  /** Collected data so far: fieldKey → value */
+  data: Partial<QuotationFormData>;
+}
+
+export interface QuotationFormData {
+  /** ชื่อหน่วยงาน/บริษัท */
+  orgName: string;
+  /** ที่อยู่สำหรับออกใบเสนอราคา */
+  address: string;
+  /** เลขที่ผู้เสียภาษี (13 หลัก) หรือ เลขทะเบียนนิติบุคคล */
+  taxId: string;
+  /** เบอร์โทรศัพท์ติดต่อกลับ */
+  phone: string;
+  /** รายการสินค้าหรือรายละเอียดที่ต้องการ */
+  items: string;
 }
 
 export interface ChatMessage {
@@ -559,6 +589,22 @@ class ChatStore {
       conv.pinnedAt = Date.now();
       conv.pinnedReason = reason;
       conv.botEnabled = false; // Auto-disable bot when pinned
+      await setJSON(ck, conv);
+    }
+  }
+
+  // ── Pending Form (multi-turn data collection) ──
+
+  /** Save or update the pending form state for a conversation */
+  async setPendingForm(businessId: string, userId: string, form: PendingForm | null): Promise<void> {
+    const ck = convKey(businessId, userId);
+    const conv = await getJSON<ChatConversation>(ck);
+    if (conv) {
+      if (form === null) {
+        delete conv.pendingForm;
+      } else {
+        conv.pendingForm = form;
+      }
       await setJSON(ck, conv);
     }
   }
