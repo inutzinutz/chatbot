@@ -19,7 +19,6 @@ export interface LineChannelSettings {
   welcomeMessage: string;       // sent on LINE "follow" event
   autoReply: boolean;           // global auto-reply flag (mirrors Redis globalbot but settable via UI)
   responseDelaySec: number;     // seconds to wait before replying (0 = instant)
-  offlineMessage: string;       // sent to customer when bot is disabled
   richMenuEnabled: boolean;     // whether a rich menu should be linked
   richMenuId: string;           // LINE rich menu ID (richmenu-xxx)
   useReplyApi: boolean;         // currently always true; reserved for future Push API switch

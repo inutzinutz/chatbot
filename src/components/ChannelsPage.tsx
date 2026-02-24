@@ -433,14 +433,7 @@ function CommonSettingsSection({
             suffix="seconds"
           />
         </Field>
-        <Field label="Offline Message" hint="Sent when outside business hours (if enabled)">
-          <TextArea
-            value={common.offlineMessage}
-            onChange={(v) => update("offlineMessage", v)}
-            placeholder="ขณะนี้อยู่นอกเวลาทำการ ..."
-            rows={2}
-          />
-        </Field>
+
       </SectionCard>
 
       {/* Business Hours */}
@@ -926,7 +919,6 @@ function ChannelDetail({
           welcomeMessage: channel.common.welcomeMessage,
           autoReply: channel.common.autoReply,
           responseDelaySec: channel.common.responseDelaySec,
-          offlineMessage: channel.common.offlineMessage,
           richMenuEnabled: channel.line.richMenuEnabled,
           richMenuId: channel.line.richMenuId,
           useReplyApi: channel.line.useReplyApi,

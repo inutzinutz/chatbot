@@ -14,7 +14,7 @@ import {
 } from "@/lib/visionPrompt";
 import { logTokenUsage } from "@/lib/tokenTracker";
 import { autoExtractCRM } from "@/lib/crmExtract";
-import { isUserRateLimited, isReplyTokenProcessed, isOfflineMessageOnCooldown } from "@/lib/rateLimit";
+import { isUserRateLimited, isReplyTokenProcessed } from "@/lib/rateLimit";
 import { trackFunnelEvent } from "@/lib/funnelTracker";
 
 export const runtime = "nodejs";
@@ -691,8 +691,7 @@ export async function POST(req: NextRequest) {
       const withinHours = lineSettings?.businessHours
         ? isWithinBusinessHours(lineSettings.businessHours)
         : true;
-      if (!withinHours && lineSettings?.offlineMessage) {
-        await replyToLine(replyToken, stripMarkdown(lineSettings.offlineMessage), accessToken);
+      if (!withinHours) {
         diag.skipped = "outside_business_hours";
         results.push(diag);
         continue;
@@ -837,15 +836,7 @@ export async function POST(req: NextRequest) {
         : true;
       diag.withinBusinessHours = withinHours;
 
-      if (!withinHours && lineSettings?.offlineMessage) {
-        const onCooldown = await isOfflineMessageOnCooldown(businessId, lineUserId);
-        if (!onCooldown) {
-          try {
-            const offlineText = stripMarkdown(lineSettings.offlineMessage);
-            await pushToLine(lineUserId, offlineText, accessToken);
-            diag.sentOfflineMessage = true;
-          } catch { /* non-critical */ }
-        }
+      if (!withinHours) {
         diag.skippedReason = "outside_business_hours";
         results.push(diag);
         continue;
@@ -856,16 +847,6 @@ export async function POST(req: NextRequest) {
       diag.globalBotEnabled = globalBotEnabled;
 
       if (!globalBotEnabled) {
-        // Send offline message only once per 10 min — avoid spamming customer
-        if (lineSettings?.offlineMessage) {
-          const onCooldown = await isOfflineMessageOnCooldown(businessId, lineUserId);
-          if (!onCooldown) {
-            try {
-              await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
-              diag.sentOfflineMessage = true;
-            } catch { /* non-critical */ }
-          }
-        }
         diag.skippedReason = "global_bot_disabled";
         results.push(diag);
         continue;

@@ -30,7 +30,6 @@ function defaultSettings(businessId: string): LineChannelSettings {
         : `สวัสดีครับ! ยินดีต้อนรับสู่ ${biz.name}\nพิมพ์สอบถามได้เลยครับ`,
     autoReply: true,
     responseDelaySec: 5,
-    offlineMessage: "ขณะนี้บอทอยู่นอกเวลาทำการ ทีมงานจะติดต่อกลับโดยเร็วที่สุดครับ",
     richMenuEnabled: false,
     richMenuId: "",
     useReplyApi: true,

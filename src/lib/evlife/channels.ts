@@ -19,7 +19,6 @@ export interface ChannelCommonSettings {
       active: boolean;
     }[];
   };
-  offlineMessage: string;
 }
 
 /* ---------- per-platform settings ---------- */
@@ -91,7 +90,6 @@ function defaultCommon(): ChannelCommonSettings {
       timezone: "Asia/Bangkok",
       schedule: DEFAULT_SCHEDULE.map((s) => ({ ...s })),
     },
-    offlineMessage: "ขณะนี้อยู่นอกเวลาทำการครับ (เปิดทุกวัน 9:30–18:00 น.)\n\nทิ้งข้อความไว้ได้เลยครับ ทีมงานจะตอบกลับในเวลาทำการครับ\n\nติดต่อด่วน: LINE @evlifethailand",
   };
 }
 

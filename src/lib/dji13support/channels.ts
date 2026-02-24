@@ -26,7 +26,6 @@ function defaultCommon(): ChannelCommonSettings {
       timezone: "Asia/Bangkok",
       schedule: DEFAULT_SCHEDULE.map((s) => ({ ...s })),
     },
-    offlineMessage: "ขณะนี้อยู่นอกเวลาทำการ จะตอบกลับโดยเร็วที่สุดครับ",
   };
 }
 
