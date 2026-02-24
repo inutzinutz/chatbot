@@ -236,7 +236,7 @@ export const products: Product[] = [
   {
     id: 3006,
     name: "EM Legend G.2 (Legend Classic Iconic)",
-    description: "มอเตอร์ไซค์ไฟฟ้า EM Legend G.2 รุ่นยอดนิยม คุ้มค่าที่สุด NO.1 EV Bike of the Year 2025 จดทะเบียนได้ พร้อมส่งครบสี\nราคา: 39,900 บาท (จากปกติ 57,900 บาท) | ผ่อน 0% นาน 36 งวด เริ่มต้น 1,544 บาท/เดือน\nสีที่มี: Tuxedo White | Adven Grey | Hunter Green | Latte Brown\nMotor: 2000W | Battery: Li-on NMC 72V 24Ah | Range: 40-70 km/ชาร์จ | Top Speed: 70 km/h | Charge: 2-3 ชั่วโมง\nล้อ: 10 นิ้ว F/R | ขนาด: 750×1,740×1,145 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 3,990 บาท (เฉพาะ EV Life Thailand)",
+    description: "มอเตอร์ไซค์ไฟฟ้า EM Legend G.2 (Classic Iconic) รุ่นยอดนิยม คุ้มค่าที่สุด NO.1 EV Bike of the Year 2025 จดทะเบียนได้ พร้อมส่งครบสี\nราคา: 39,900 บาท (จากปกติ 57,900 บาท)\nตารางผ่อน 0% (ดาวน์ 0%): 24 งวด = 2,090 บาท/เดือน | 36 งวด = 1,544 บาท/เดือน\nดาวน์ 5% (1,995 บาท): 24 งวด = 1,984 บาท | 36 งวด = 1,467 บาท\nดาวน์ 10% (3,990 บาท): 24 งวด = 1,881 บาท | 36 งวด = 1,389 บาท\nสีที่มี: Tuxedo White | Adven Grey | Hunter Green | Latte Brown\nMotor: 2000W | Battery: Li-on NMC 72V 24Ah | Range: 40-70 km/ชาร์จ | Top Speed: 70 km/h | Charge: 2-3 ชั่วโมง\nล้อ: 10 นิ้ว F/R | ขนาด: 750×1,740×1,145 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 3,990 บาท (เฉพาะ EV Life Thailand)",
     price: 39900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/d946ef/white?text=EM+Legend+G.2",
@@ -246,7 +246,7 @@ export const products: Product[] = [
   {
     id: 3002,
     name: "EM Legend Pro",
-    description: "มอเตอร์ไซค์ไฟฟ้า EM Legend Pro รุ่นอัปเกรด สมรรถนะสูงขึ้น \"Forge a new legend on your journey.\" จดทะเบียนได้ พร้อมส่งครบสี\nราคา: 49,900 บาท (จากปกติ 65,000 บาท) | ผ่อน 0% นาน 36 งวด เริ่มต้น 1,931 บาท/เดือน\nสีที่มี: Retro White | All Black | Ultima Grey | Green Hunter\nMotor: 2500W | Battery: Li-on NMC 72V 24Ah | Range: 40-70 km/ชาร์จ | Top Speed: 75 km/h | Charge: 3-4 ชั่วโมง\nล้อ: 12 นิ้ว F/R | ขนาด: 750×1,830×1,145 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 4,990 บาท (เฉพาะ EV Life Thailand)",
+    description: "มอเตอร์ไซค์ไฟฟ้า EM Legend Pro รุ่นอัปเกรด สมรรถนะสูงขึ้น \"Forge a new legend on your journey.\" จดทะเบียนได้ พร้อมส่งครบสี\nราคา: 49,900 บาท (จากปกติ 65,000 บาท)\nตารางผ่อน 0% (ดาวน์ 0%): 24 งวด = 2,614 บาท/เดือน | 36 งวด = 1,931 บาท/เดือน\nดาวน์ 10% (4,990 บาท): 24 งวด = 2,352 บาท | 36 งวด = 1,738 บาท\nดาวน์ 20% (9,980 บาท): 24 งวด = 2,091 บาท | 36 งวด = 1,545 บาท\nดาวน์ 25% (12,475 บาท): 24 งวด = 1,960 บาท | 36 งวด = 1,448 บาท\nสีที่มี: Retro White | All Black | Ultima Grey | Green Hunter\nMotor: 2500W | Battery: Li-on NMC 72V 24Ah | Range: 40-70 km/ชาร์จ | Top Speed: 75 km/h | Charge: 3-4 ชั่วโมง\nล้อ: 12 นิ้ว F/R | ขนาด: 750×1,830×1,145 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 4,990 บาท (เฉพาะ EV Life Thailand)",
     price: 49900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/ef4444/white?text=EM+Legend+Pro",
@@ -267,7 +267,7 @@ export const products: Product[] = [
   {
     id: 3001,
     name: "EM Milano",
-    description: "มอเตอร์ไซค์ไฟฟ้า EM Milano พลังสูงสุดในตระกูล EM สไตล์พรีเมียม \"Always Forward\" จดทะเบียนได้\nราคา: 59,900 บาท (จากปกติ 79,600 บาท) | ผ่อน 0% นาน 36 งวด เริ่มต้น 2,317 บาท/เดือน\nสีที่มี: White Paladin | Black Knight\nMotor: 4000W | Battery: Li-on NMC 72V 44Ah | Range: 70-100 km/ชาร์จ | Top Speed: 85 km/h | Charge: 4 ชั่วโมง\nล้อ: 12 นิ้ว F/R | ขนาด: 692×1,912×1,185 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 5,990 บาท (เฉพาะ EV Life Thailand)",
+    description: "มอเตอร์ไซค์ไฟฟ้า EM Milano พลังสูงสุดในตระกูล EM สไตล์พรีเมียม \"Always Forward\" จดทะเบียนได้\nราคา: 59,900 บาท (จากปกติ 79,600 บาท)\nตารางผ่อน 0% (ดาวน์ 0%): 24 งวด = 3,137 บาท/เดือน | 36 งวด = 2,317 บาท/เดือน\nดาวน์ 10% (5,990 บาท): 24 งวด = 2,824 บาท | 36 งวด = 2,086 บาท\nดาวน์ 20% (11,980 บาท): 24 งวด = 2,510 บาท | 36 งวด = 1,854 บาท\nดาวน์ 25% (14,975 บาท): 24 งวด = 2,353 บาท | 36 งวด = 1,738 บาท\nสีที่มี: White Paladin | Black Knight\nMotor: 4000W | Battery: Li-on NMC 72V 44Ah | Range: 70-100 km/ชาร์จ | Top Speed: 85 km/h | Charge: 4 ชั่วโมง\nล้อ: 12 นิ้ว F/R | ขนาด: 692×1,912×1,185 mm | เบรก: Disc (F/R) + CBS\nWarranty: มอเตอร์ 5 ปี/30,000 กม. | แบตเตอรี่+คอนโทรลเลอร์ 3 ปี/20,000 กม. | ระบบไฟฟ้า 1 ปี/10,000 กม.\nService Plus+: ขยายประกันระบบไฟฟ้าเป็น 2 ปี/20,000 กม. ราคา 5,990 บาท (เฉพาะ EV Life Thailand)",
     price: 59900,
     category: "มอเตอร์ไซค์ไฟฟ้า EM",
     image: "https://placehold.co/300x300/f97316/white?text=EM+Milano",
