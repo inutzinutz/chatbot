@@ -1269,6 +1269,34 @@ export const knowledgeDocs: KnowledgeDoc[] = [
       "LINE: @evlifethailand | โทร: 094-905-6155",
   },
 
+  // 12. EM Battery Replacement (72V spare batteries)
+  {
+    id: 212,
+    title: "แบตเตอรี่สำรอง EM 72V — ราคาและสเปค",
+    triggers: [
+      "แบตสำรอง", "เปลี่ยนแบต em", "แบตเตอรี่ em", "72v", "24ah", "44ah", "100ah",
+      "spare battery", "replacement battery", "แบต legend", "แบต enzo", "แบต owen",
+      "แบต qarez", "แบต milano", "unr136", "แบตใหม่ em", "แบตหมดอายุ",
+    ],
+    tags: ["แบตเตอรี่ EM", "72V", "spare", "อะไหล่"],
+    content:
+      "แบตเตอรี่สำรอง EM 72V (ราคาใหม่ มีผลตั้งแต่ 1 พฤษภาคม 2568)\n\n" +
+      "72V 24AH — 16,900 บาท\n" +
+      "สำหรับรุ่น: EM Legend G.2, EM Qarez\n\n" +
+      "72V 44AH — 26,900 บาท\n" +
+      "สำหรับรุ่น: EM Enzo, EM Owen\n\n" +
+      "72V 100AH — 46,900 บาท\n" +
+      "สำหรับรุ่น: EM Owen Long Range\n\n" +
+      "คุณสมบัติ:\n" +
+      "- ผ่านมาตรฐาน UNR136 และ มอก.\n" +
+      "- Made in Thailand (แบรนด์ไทย)\n" +
+      "- CBS (Disc Brake compatible)\n" +
+      "- รับประกัน 5 ปี\n" +
+      "- ปลอดภัย ไม่ระเบิด ไม่ลุกไหม้\n\n" +
+      "สอบถามและสั่งซื้อ:\n" +
+      "LINE: @evlifethailand | โทร: 094-905-6155",
+  },
+
   // 11. Generic warranty (battery + motorcycle combined) — AFTER specific EM warranty doc
   {
     id: 107,

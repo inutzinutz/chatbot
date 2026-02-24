@@ -285,6 +285,39 @@ export const products: Product[] = [
     status: "active",
   },
 
+  // === แบตเตอรี่สำรอง EM (72V) ===
+  // ราคาใหม่มีผลตั้งแต่ 1 พฤษภาคม 2568 — มาตรฐาน UNR136 รับประกัน 5 ปี
+  {
+    id: 5001,
+    name: "แบตเตอรี่ EM 72V 24AH (สำหรับ EM Legend / EM Qarez)",
+    description: "แบตเตอรี่สำรอง EM แท้ 72V 24AH สำหรับรุ่น EM Legend G.2 และ EM Qarez\nผ่านมาตรฐาน UNR136 และ มอก. ปลอดภัย ไม่ระเบิด ไม่ลุกไหม้\nMade in Thailand | รับประกัน 5 ปี\nWarranty: 5 ปี",
+    price: 16900,
+    category: "แบตเตอรี่ EM",
+    image: "https://placehold.co/300x300/1a1a1a/white?text=EM+72V+24AH",
+    tags: ["แบตเตอรี่ EM", "แบตสำรอง", "72V", "24AH", "EM Legend", "EM Qarez", "Legend", "Qarez", "เลเจนด์", "UNR136", "Made in Thailand", "อะไหล่"],
+    status: "active",
+  },
+  {
+    id: 5002,
+    name: "แบตเตอรี่ EM 72V 44AH (สำหรับ EM Enzo / EM Owen)",
+    description: "แบตเตอรี่สำรอง EM แท้ 72V 44AH สำหรับรุ่น EM Enzo และ EM Owen\nผ่านมาตรฐาน UNR136 และ มอก. ปลอดภัย ไม่ระเบิด ไม่ลุกไหม้\nMade in Thailand | รับประกัน 5 ปี\nWarranty: 5 ปี",
+    price: 26900,
+    category: "แบตเตอรี่ EM",
+    image: "https://placehold.co/300x300/1a1a1a/white?text=EM+72V+44AH",
+    tags: ["แบตเตอรี่ EM", "แบตสำรอง", "72V", "44AH", "EM Enzo", "EM Owen", "Enzo", "Owen", "เอนโซ่", "โอเว่น", "UNR136", "Made in Thailand", "อะไหล่"],
+    status: "active",
+  },
+  {
+    id: 5003,
+    name: "แบตเตอรี่ EM 72V 100AH (สำหรับ EM Owen Long Range)",
+    description: "แบตเตอรี่สำรอง EM แท้ 72V 100AH สำหรับรุ่น EM Owen Long Range\nผ่านมาตรฐาน UNR136 และ มอก. ปลอดภัย ไม่ระเบิด ไม่ลุกไหม้\nMade in Thailand | รับประกัน 5 ปี\nWarranty: 5 ปี",
+    price: 46900,
+    category: "แบตเตอรี่ EM",
+    image: "https://placehold.co/300x300/1a1a1a/white?text=EM+72V+100AH",
+    tags: ["แบตเตอรี่ EM", "แบตสำรอง", "72V", "100AH", "EM Owen LR", "EM Owen Long Range", "Owen LR", "โอเว่น", "UNR136", "Made in Thailand", "อะไหล่", "Long Range"],
+    status: "active",
+  },
+
   // === อุปกรณ์เสริม ===
   {
     id: 4001,
