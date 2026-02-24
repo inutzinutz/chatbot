@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBusinessConfig } from "@/lib/businessUnits";
+import { getBusinessConfig, isValidBusinessId } from "@/lib/businessUnits";
 import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
@@ -320,6 +320,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
   if (!businessId) {
     return NextResponse.json(
       { error: "Missing businessId in path" },
+      { status: 400 }
+    );
+  }
+  if (!isValidBusinessId(businessId)) {
+    console.error(`[LINE webhook/path] Rejected unknown businessId: "${businessId}"`);
+    return NextResponse.json(
+      { error: `Unknown businessId: ${businessId}` },
       { status: 400 }
     );
   }

@@ -551,9 +551,14 @@ export const businessUnitList = [
 
 export const DEFAULT_BUSINESS_ID = "dji13store";
 
+export function isValidBusinessId(businessId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(businessUnits, businessId);
+}
+
 export function getBusinessConfig(businessId: string): BusinessConfig {
-  if (!businessUnits[businessId]) {
-    console.warn(`[businessUnits] Unknown businessId "${businessId}" — falling back to default "${DEFAULT_BUSINESS_ID}"`);
+  if (!isValidBusinessId(businessId)) {
+    // Log as error (not warn) — this indicates a misconfigured webhook URL
+    console.error(`[businessUnits] Unknown businessId "${businessId}" — falling back to default "${DEFAULT_BUSINESS_ID}". Check webhook URL configuration.`);
   }
   return businessUnits[businessId] || businessUnits[DEFAULT_BUSINESS_ID];
 }
