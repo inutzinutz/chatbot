@@ -428,6 +428,36 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
     setInputText("");
     setSending(true);
 
+    // ── Slash bot-control commands: /bot off | /bot on ──
+    const botCmd = text.toLowerCase().replace(/\s+/g, " ").trim();
+    if (botCmd === "/bot off" || botCmd === "/bot on") {
+      const enable = botCmd === "/bot on";
+      setConversations((prev) =>
+        prev.map((c) => (c.userId === activeUserId ? { ...c, botEnabled: enable } : c))
+      );
+      try {
+        await fetch("/api/chat/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "toggleBot",
+            businessId,
+            userId: activeUserId,
+            enabled: enable,
+          }),
+        });
+        await fetchMessages();
+        await fetchConversations();
+      } catch {
+        setConversations((prev) =>
+          prev.map((c) => (c.userId === activeUserId ? { ...c, botEnabled: !enable } : c))
+        );
+      }
+      setSending(false);
+      inputRef.current?.focus();
+      return;
+    }
+
     const optimisticMsg: ChatMessage = {
       id: `tmp-${Date.now()}`,
       role: "admin",
@@ -569,7 +599,10 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInputText(val);
-    if (val === "/") {
+    // "/bot off" and "/bot on" are reserved commands — don't trigger template picker
+    if (val.toLowerCase().startsWith("/bot")) {
+      setShowTemplatePicker(false);
+    } else if (val === "/") {
       setShowTemplatePicker(true);
       setTemplateFilter("");
     } else if (val.startsWith("/") && showTemplatePicker) {
@@ -1911,8 +1944,8 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
                   }}
                   placeholder={
                     activeConv?.botEnabled
-                      ? "พิมพ์ข้อความ... (บอทตอบอัตโนมัติอยู่)  หรือพิมพ์ / เพื่อเลือกข้อความสำเร็จรูป"
-                      : "พิมพ์ข้อความถึงลูกค้า...  หรือพิมพ์ / เพื่อเลือกข้อความสำเร็จรูป"
+                      ? "พิมพ์ข้อความ... (บอทตอบอัตโนมัติอยู่)  /bot off เพื่อปิดบอท  หรือ / เพื่อเลือกข้อความสำเร็จรูป"
+                      : "พิมพ์ข้อความถึงลูกค้า...  /bot on เพื่อเปิดบอท  หรือ / เพื่อเลือกข้อความสำเร็จรูป"
                   }
                   className="flex-1 px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                   disabled={sending}
@@ -1933,13 +1966,13 @@ export default function LiveChatPage({ businessId }: LiveChatPageProps) {
               {activeConv?.botEnabled && (
                 <p className="text-[10px] text-green-600 mt-1.5 flex items-center gap-1">
                   <Bot className="h-3 w-3" />
-                  Bot is auto-replying to this customer. Turn off to reply manually.
+                  Bot is auto-replying to this customer. Turn off to reply manually. (or type <span className="font-mono font-semibold">/bot off</span>&nbsp;+ Enter)
                 </p>
               )}
               {activeConv && !activeConv.botEnabled && (
                 <p className="text-[10px] text-orange-600 mt-1.5 flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Bot is OFF. You are replying manually to this customer.
+                  Bot is OFF. You are replying manually. (type <span className="font-mono font-semibold">/bot on</span>&nbsp;+ Enter to re-enable)
                 </p>
               )}
 
