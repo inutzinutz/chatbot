@@ -1076,9 +1076,6 @@ export async function POST(req: NextRequest) {
         await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
       }
 
-      // ── CRM auto-extract (fire-and-forget) ──
-      autoExtractCRM(businessId, lineUserId).catch(() => {});
-
       // ── Build messages array (text + optional Flex carousel) ──
       // LINE Reply API allows up to 5 messages per reply
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1125,6 +1122,8 @@ export async function POST(req: NextRequest) {
           pipelineLayer: pipelineTrace.finalLayer,
           pipelineLayerName: pipelineTrace.finalLayerName,
         });
+        // ── CRM auto-extract (fire-and-forget) — only after successful reply ──
+        autoExtractCRM(businessId, lineUserId).catch(() => {});
       }
     } catch (err) {
       diag.error = String(err);

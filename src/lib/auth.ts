@@ -107,13 +107,19 @@ async function hmacVerify(payload: string, signature: string): Promise<boolean> 
 }
 
 function base64UrlEncode(str: string): string {
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  // Use Buffer to correctly handle multi-byte (e.g. Thai) characters
+  return Buffer.from(str, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 function base64UrlDecode(str: string): string {
   const pad = str.length % 4;
   const padded = str + "=".repeat(pad ? 4 - pad : 0);
-  return atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+  // Use Buffer to correctly decode multi-byte (e.g. Thai) characters
+  return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
 }
 
 export async function createSessionToken(user: AuthUser): Promise<string> {

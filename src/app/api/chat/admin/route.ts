@@ -351,18 +351,38 @@ export async function POST(req: NextRequest) {
         (c) => c.lastMessageAt > sevenDaysAgo
       );
 
+      // Paginate to avoid Vercel timeout: max 20 convs per call
+      const PAGE_SIZE = 20;
+      const CONCURRENCY = 5;
+      const page = typeof body.page === "number" ? body.page : 0;
+      const slice = recent.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+      const hasMore = recent.length > (page + 1) * PAGE_SIZE;
+
       let analyzed = 0;
       let flagged = 0;
 
-      for (const conv of recent) {
-        const msgs = await chatStore.getMessages(businessId, conv.userId);
-        const result = await analyzeConversation(msgs, conv, bizConfig.name);
-        await chatStore.setFollowUp(businessId, conv.userId, result);
-        analyzed++;
-        if (result.needsFollowup) flagged++;
+      // Process in batches of CONCURRENCY to limit parallel AI calls
+      for (let i = 0; i < slice.length; i += CONCURRENCY) {
+        const batch = slice.slice(i, i + CONCURRENCY);
+        await Promise.all(
+          batch.map(async (conv) => {
+            const msgs = await chatStore.getMessages(businessId, conv.userId);
+            const result = await analyzeConversation(msgs, conv, bizConfig.name);
+            await chatStore.setFollowUp(businessId, conv.userId, result);
+            analyzed++;
+            if (result.needsFollowup) flagged++;
+          })
+        );
       }
 
-      return NextResponse.json({ success: true, analyzed, flagged });
+      return NextResponse.json({
+        success: true,
+        analyzed,
+        flagged,
+        page,
+        hasMore,
+        total: recent.length,
+      });
     }
 
     // ── Send follow-up message to customer ──

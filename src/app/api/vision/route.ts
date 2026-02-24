@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getBusinessConfig, DEFAULT_BUSINESS_ID } from "@/lib/businessUnits";
+import { requireAdminSession } from "@/lib/auth";
 import {
   buildVisionSystemPrompt,
   buildVisionUserPrompt,
@@ -31,6 +32,13 @@ const SUPPORTED_DOC_TYPES = ["application/pdf"];
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Auth guard — prevents unauthenticated AI key consumption ──
+    const businessId_q = req.nextUrl.searchParams.get("businessId") || "";
+    const session = await requireAdminSession(req, businessId_q || DEFAULT_BUSINESS_ID);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json() as {
       fileData: string;
       mimeType: string;

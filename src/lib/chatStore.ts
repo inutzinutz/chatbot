@@ -386,26 +386,40 @@ class ChatStore {
     `;
     await (redis as Redis).eval(LUA_RPUSH_TRIM, 1, mk, JSON.stringify(fullMsg), "500");
 
-    // Update conversation metadata
+    // Atomically update conversation metadata via Lua script.
+    // Lua runs single-threaded in Redis, so GET→modify→SET is race-free.
     const ck = convKey(businessId, userId);
-    const conv = await getJSON<ChatConversation>(ck);
-    if (conv) {
-      conv.lastMessage = msg.imageUrl
-        ? `[รูปภาพ] ${msg.content || ""}`.trim().slice(0, 100)
-        : msg.content.slice(0, 100);
-      conv.lastMessageAt = msg.timestamp;
-      conv.lastMessageRole = msg.role;
-      if (msg.role === "customer") {
-        conv.unreadCount++;
-      }
-      // Track last admin reply time for auto re-enable handoff
-      if (msg.role === "admin") {
-        conv.adminLastReplyAt = msg.timestamp;
-      }
-      await setJSON(ck, conv);
-      // Update sorted set score
-      if (redis) await redis.zadd(convsKey(businessId), msg.timestamp, userId);
-    }
+    const zk = convsKey(businessId);
+    const lastMsg = msg.imageUrl
+      ? `[รูปภาพ] ${msg.content || ""}`.trim().slice(0, 100)
+      : msg.content.slice(0, 100);
+    const LUA_UPDATE_CONV = `
+      local raw = redis.call('GET', KEYS[1])
+      if not raw then return 0 end
+      local conv = cjson.decode(raw)
+      conv['lastMessage']     = ARGV[1]
+      conv['lastMessageAt']   = tonumber(ARGV[2])
+      conv['lastMessageRole'] = ARGV[3]
+      if ARGV[3] == 'customer' then
+        conv['unreadCount'] = (conv['unreadCount'] or 0) + 1
+      end
+      if ARGV[3] == 'admin' then
+        conv['adminLastReplyAt'] = tonumber(ARGV[2])
+      end
+      redis.call('SET', KEYS[1], cjson.encode(conv))
+      redis.call('ZADD', KEYS[2], tonumber(ARGV[2]), ARGV[4])
+      return 1
+    `;
+    await (redis as Redis).eval(
+      LUA_UPDATE_CONV,
+      2,
+      ck,
+      zk,
+      lastMsg,
+      String(msg.timestamp),
+      msg.role,
+      userId
+    );
 
     // ── B1: Trigger conversation summarization every 20 messages ──
     // Fire-and-forget: don't await so we don't block the response
