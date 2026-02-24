@@ -73,7 +73,11 @@ export function verifyCredentials(
 // ── JWT-like token using HMAC-SHA256 (Web Crypto API) ──
 
 function getSecret(): string {
-  return process.env.AUTH_SECRET || "droidmind-default-secret-change-me";
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error("[auth] AUTH_SECRET env var is required but not set. Set it in your environment.");
+  }
+  return secret;
 }
 
 async function hmacSign(payload: string): Promise<string> {
@@ -86,7 +90,7 @@ async function hmacSign(payload: string): Promise<string> {
     ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)))
+  return Buffer.from(sig).toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
@@ -94,7 +98,12 @@ async function hmacSign(payload: string): Promise<string> {
 
 async function hmacVerify(payload: string, signature: string): Promise<boolean> {
   const expected = await hmacSign(payload);
-  return expected === signature;
+  // Constant-time comparison to prevent timing attacks on session tokens
+  const { timingSafeEqual } = await import("crypto");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 function base64UrlEncode(str: string): string {

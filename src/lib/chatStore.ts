@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
  */
 export interface LineChannelSettings {
   welcomeMessage: string;       // sent on LINE "follow" event
+  offlineMessage?: string;      // sent when message arrives outside business hours
   autoReply: boolean;           // global auto-reply flag (mirrors Redis globalbot but settable via UI)
   responseDelaySec: number;     // seconds to wait before replying (0 = instant)
   richMenuEnabled: boolean;     // whether a rich menu should be linked

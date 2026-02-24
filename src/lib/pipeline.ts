@@ -60,6 +60,21 @@ export interface TracedResult {
 // INTENT ENGINE — Multi-signal scoring (business-aware)
 // ─────────────────────────────────────────────────────────────
 
+// Module-level cache: trigger string → compiled word-boundary RegExp
+// Avoids recompiling the same pattern on every message (hot-loop fix).
+// Using a Map instead of WeakMap since keys are strings.
+const _wbRegexCache = new Map<string, RegExp>();
+
+function getWordBoundaryRegex(trigger: string): RegExp {
+  let re = _wbRegexCache.get(trigger);
+  if (!re) {
+    const escaped = trigger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp(`(^|[\\s,!?])${escaped}($|[\\s,!?])`);
+    _wbRegexCache.set(trigger, re);
+  }
+  return re;
+}
+
 export function scoreIntents(message: string, biz: BusinessConfig): IntentScore[] {
   const lower = message.toLowerCase();
   const scores: IntentScore[] = [];
@@ -79,8 +94,7 @@ export function scoreIntents(message: string, biz: BusinessConfig): IntentScore[
       // the full 3 points for exact-string matches on Thai triggers.
       const isAsciiTrigger = /^[\x00-\x7F]+$/.test(t);
       if (isAsciiTrigger) {
-        const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const wb = new RegExp(`(^|[\\s,!?])${escaped}($|[\\s,!?])`);
+        const wb = getWordBoundaryRegex(t);
         score += wb.test(lower) ? 3 : 2;
       } else {
         // Thai: always award 3 (treat as boundary-matched)

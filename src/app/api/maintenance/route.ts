@@ -15,18 +15,18 @@ export const maxDuration = 60;
 /*    "stats"       — return Redis memory info                        */
 /* ------------------------------------------------------------------ */
 
-const g = globalThis as unknown as { __redis_maint?: Redis };
-if (!g.__redis_maint) {
+const g = globalThis as unknown as { __redis_maint?: Redis | null };
+if (!("__redis_maint" in g)) {
   const url = process.env.REDIS_URL;
-  if (url) {
-    g.__redis_maint = new Redis(url, {
-      maxRetriesPerRequest: 3,
-      connectTimeout: 5000,
-      retryStrategy: (t) => (t > 3 ? null : Math.min(t * 200, 1000)),
-    });
-  }
+  g.__redis_maint = url
+    ? new Redis(url, {
+        maxRetriesPerRequest: 3,
+        connectTimeout: 5000,
+        retryStrategy: (t) => (t > 3 ? null : Math.min(t * 200, 1000)),
+      })
+    : null;
 }
-const redis = g.__redis_maint!;
+const redis = g.__redis_maint;;
 
 /** 90-day TTL for inactive conversations (in seconds) */
 const CONV_TTL_SEC = 90 * 24 * 60 * 60;
@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
 
   const session = await requireAdminSession(req, businessId);
   if (!session) return unauthorizedResponse();
+
+  if (!redis) {
+    return NextResponse.json({ error: "Redis not configured (REDIS_URL missing)" }, { status: 503 });
+  }
 
   if (action === "stats") {
     // Return Redis memory info
@@ -121,6 +125,10 @@ export async function GET(req: NextRequest) {
   if (!businessId) return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
   const session = await requireAdminSession(req, businessId);
   if (!session) return unauthorizedResponse();
+
+  if (!redis) {
+    return NextResponse.json({ error: "Redis not configured (REDIS_URL missing)" }, { status: 503 });
+  }
 
   // Return quick stats
   const convsKey = `convs:${businessId}`;

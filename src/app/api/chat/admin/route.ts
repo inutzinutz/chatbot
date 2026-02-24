@@ -518,10 +518,10 @@ export async function POST(req: NextRequest) {
       await chatStore.logAdminActivity({
         businessId,
         username: sentBy,
-        action: "toggleBot",
+        action: "pin", // closest semantic match for "taking ownership of conversation"
         userId,
         displayName: await getDisplayName(userId),
-        detail: `รับงาน (assign)`,
+        detail: `รับงาน (assign) โดย ${sentBy}`,
         timestamp: Date.now(),
       });
       return NextResponse.json({ success: true, assignedAdmin: sentBy });

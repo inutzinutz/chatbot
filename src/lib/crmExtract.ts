@@ -142,6 +142,16 @@ export async function autoExtractCRM(businessId: string, userId: string): Promis
     const existing = await chatStore.getCRMProfile(businessId, userId);
     const now = Date.now();
 
+    // Validate enum values from AI — prevent hallucinated values from corrupting CRM
+    const VALID_PURCHASE_INTENTS: CRMProfile["purchaseIntent"][] = ["hot", "warm", "cold", "purchased"];
+    const VALID_STAGES: CRMProfile["stage"][] = ["lead", "prospect", "customer", "churned"];
+    const validatedIntent = VALID_PURCHASE_INTENTS.includes(extracted.purchaseIntent as CRMProfile["purchaseIntent"])
+      ? extracted.purchaseIntent as CRMProfile["purchaseIntent"]
+      : undefined;
+    const validatedStage = VALID_STAGES.includes(extracted.stage as CRMProfile["stage"])
+      ? extracted.stage as CRMProfile["stage"]
+      : undefined;
+
     const profile: CRMProfile = {
       userId,
       businessId,
@@ -154,10 +164,10 @@ export async function autoExtractCRM(businessId: string, userId: string): Promis
       interestedProducts: extracted.interestedProducts?.filter(Boolean) as string[] | undefined
         || existing?.interestedProducts,
       budget: extracted.budget ?? existing?.budget ?? undefined,
-      purchaseIntent: (extracted.purchaseIntent as CRMProfile["purchaseIntent"]) || existing?.purchaseIntent,
+      purchaseIntent: validatedIntent || existing?.purchaseIntent,
       province: extracted.province ?? existing?.province ?? undefined,
       occupation: extracted.occupation ?? existing?.occupation ?? undefined,
-      stage: (extracted.stage as CRMProfile["stage"]) || existing?.stage || "lead",
+      stage: validatedStage || existing?.stage || "lead",
       tags: existing?.tags,
       extractedAt: now,
       extractedBy: "ai",

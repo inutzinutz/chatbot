@@ -86,8 +86,16 @@ async function verifySignature(
     ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(body));
-  const digest = btoa(String.fromCharCode(...new Uint8Array(sig)));
-  return digest === signature;
+  // Constant-time comparison to prevent timing attacks
+  const expected = Buffer.from(sig);
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(signature, "base64");
+  } catch {
+    return false;
+  }
+  if (expected.length !== decoded.length) return false;
+  return require("crypto").timingSafeEqual(expected, decoded);
 }
 
 // ── Reply to LINE via Reply API ──
@@ -805,23 +813,25 @@ export async function POST(req: NextRequest) {
     diag.userText = userText;
     diag.userId = lineUserId;
 
+    // Guard: skip anonymous events (group/room without userId)
+    if (!lineUserId) {
+      diag.skipped = "no_user_id";
+      results.push(diag);
+      continue;
+    }
+
     // ── A2: Per-userId rate limiting (20 msgs/min) ──
-    if (lineUserId) {
-      const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
-      if (limited) {
-        diag.skipped = "rate_limited";
-        // Don't reply — silently drop to avoid giving bots a signal
-        results.push(diag);
-        continue;
-      }
+    const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
+    if (limited) {
+      diag.skipped = "rate_limited";
+      // Don't reply — silently drop to avoid giving bots a signal
+      results.push(diag);
+      continue;
     }
 
     try {
       // ── Fetch user profile & ensure conversation exists ──
-      let profile: { displayName: string; pictureUrl?: string; statusMessage?: string } | null = null;
-      if (lineUserId) {
-        profile = await fetchLineProfile(lineUserId, accessToken);
-      }
+      const profile = await fetchLineProfile(lineUserId, accessToken);
       const conv = await chatStore.getOrCreateConversation(businessId, lineUserId, {
         displayName: profile?.displayName,
         pictureUrl: profile?.pictureUrl,
@@ -866,6 +876,12 @@ export async function POST(req: NextRequest) {
       diag.withinBusinessHours = withinHours;
 
       if (!withinHours) {
+        // Send offline message if configured, then stop
+        if (replyToken && lineSettings?.offlineMessage) {
+          try {
+            await replyToLine(replyToken, stripMarkdown(lineSettings.offlineMessage), accessToken);
+          } catch { /* non-fatal */ }
+        }
         diag.skippedReason = "outside_business_hours";
         results.push(diag);
         continue;
@@ -1139,6 +1155,11 @@ export async function GET(req: NextRequest) {
       usage: "POST /api/line/webhook?businessId=evlifethailand",
     });
   }
+
+  // Debug mode requires admin session
+  const { requireAdminSession, unauthorizedResponse } = await import("@/lib/auth");
+  const session = await requireAdminSession(req, businessId === "none" ? undefined : businessId);
+  if (!session) return unauthorizedResponse();
 
   // Debug mode: test pipeline + LINE API token
   const diagnostics: Record<string, unknown> = {

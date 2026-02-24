@@ -15,13 +15,14 @@ export const maxDuration = 30;
  *   CLOUDINARY_API_SECRET
  */
 export async function POST(req: NextRequest) {
-  // ── Auth guard ──
+  // ── Auth guard (always required) ──
   const businessId = req.nextUrl.searchParams.get("businessId") || "";
-  if (businessId) {
-    const session = await requireAdminSession(req, businessId);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!businessId) {
+    return NextResponse.json({ error: "Missing businessId query parameter" }, { status: 400 });
+  }
+  const session = await requireAdminSession(req, businessId);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;

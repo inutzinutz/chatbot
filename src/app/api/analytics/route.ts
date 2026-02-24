@@ -60,15 +60,13 @@ export async function GET(req: NextRequest) {
   const businessId = searchParams.get("businessId");
   const view = searchParams.get("view") || "overview";
 
-  // Auth guard
-  if (businessId) {
-    const session = await requireAdminSession(req, businessId);
-    if (!session) return unauthorizedResponse();
-  }
-
+  // Validate businessId first, then auth
   if (!businessId) {
     return NextResponse.json({ error: "Missing businessId" }, { status: 400 });
   }
+
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
 
   // ── Redis helper ──
   const Redis = (await import("ioredis")).default;

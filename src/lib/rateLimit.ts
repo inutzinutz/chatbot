@@ -40,11 +40,14 @@ export async function isUserRateLimited(
     const window = Math.floor(Date.now() / (windowSec * 1000));
     const key = `rl:${businessId}:${userId}:${window}`;
 
-    const count = await redis.incr(key);
-    if (count === 1) {
-      // First message in this window: set TTL
-      await redis.expire(key, windowSec * 2);
-    }
+    // Atomic INCR + EXPIRE via Lua to prevent permanent lockout if process
+    // crashes between the two commands (race condition fix)
+    const LUA_INCR_EXPIRE = `
+      local count = redis.call('INCR', KEYS[1])
+      if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1])) end
+      return count
+    `;
+    const count = await redis.eval(LUA_INCR_EXPIRE, 1, key, String(windowSec * 2)) as number;
     return count > maxMessages;
   } catch (err) {
     console.error("[rateLimit] isUserRateLimited Redis error:", err);

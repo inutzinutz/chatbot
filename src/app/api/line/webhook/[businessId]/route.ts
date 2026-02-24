@@ -25,8 +25,16 @@ export const maxDuration = 25; // seconds (Vercel Hobby limit)
 
 // ── Env helpers ──
 
+// Override map: businessId → env var prefix
+// Must stay in sync with the query-param webhook route.ts
+const ENV_PREFIX_OVERRIDE: Record<string, string> = {
+  dji13support: "DJI13SUPPORT",
+};
+
 function envKey(businessId: string, suffix: string): string {
-  const prefix = businessId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const prefix =
+    ENV_PREFIX_OVERRIDE[businessId] ??
+    businessId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
   return `${prefix}_${suffix}`;
 }
 
@@ -66,8 +74,41 @@ async function verifySignature(
     ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(body));
-  const digest = btoa(String.fromCharCode(...new Uint8Array(sig)));
-  return digest === signature;
+  // Constant-time comparison to prevent timing attacks
+  const expected = Buffer.from(sig);
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(signature, "base64");
+  } catch {
+    return false;
+  }
+  if (expected.length !== decoded.length) return false;
+  return require("crypto").timingSafeEqual(expected, decoded);
+}
+
+// ── Reply to LINE via Reply API ──
+
+async function replyToLine(
+  replyToken: string,
+  text: string,
+  accessToken: string
+): Promise<void> {
+  const trimmed = text.length > 5000 ? text.slice(0, 4997) + "..." : text;
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: "text", text: trimmed }],
+    }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    console.error(`[LINE webhook/path] Reply API failed: ${res.status} — ${errorBody}`);
+  }
 }
 
 // ── Push message to LINE user ──
@@ -405,22 +446,24 @@ export async function POST(req: NextRequest, context: RouteContext) {
     diag.userText = userText;
     diag.userId = lineUserId;
 
+    // Guard: skip anonymous events (group/room without userId)
+    if (!lineUserId) {
+      diag.skipped = "no_user_id";
+      results.push(diag);
+      continue;
+    }
+
     // ── Per-userId rate limiting (20 msgs/min) ──
-    if (lineUserId) {
-      const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
-      if (limited) {
-        diag.skipped = "rate_limited";
-        results.push(diag);
-        continue;
-      }
+    const limited = await isUserRateLimited(businessId, lineUserId, 20, 60);
+    if (limited) {
+      diag.skipped = "rate_limited";
+      results.push(diag);
+      continue;
     }
 
     try {
       // ── Fetch user profile & ensure conversation exists ──
-      let profile: { displayName: string; pictureUrl?: string; statusMessage?: string } | null = null;
-      if (lineUserId) {
-        profile = await fetchLineProfile(lineUserId, accessToken);
-      }
+      const profile = await fetchLineProfile(lineUserId, accessToken);
       const conv = await chatStore.getOrCreateConversation(businessId, lineUserId, {
         displayName: profile?.displayName,
         pictureUrl: profile?.pictureUrl,
@@ -464,6 +507,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       diag.withinBusinessHours = withinHours;
 
       if (!withinHours) {
+        // Send offline message if configured, then stop
+        if (replyToken && lineSettings?.offlineMessage) {
+          try {
+            await replyToLine(replyToken, stripMarkdown(lineSettings.offlineMessage), accessToken);
+          } catch { /* non-fatal */ }
+        }
         diag.skippedReason = "outside_business_hours";
         results.push(diag);
         continue;
@@ -491,17 +540,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       // ── Run pipeline — load history for context ──
       const recentMsgs = await chatStore.getMessages(businessId, lineUserId);
+      // slice(-21, -1): take up to 20 prior messages, excluding the just-stored current message
       const historyMessages: ChatMessage[] = recentMsgs
         .filter((m) => m.role === "customer" || m.role === "bot")
-        .slice(-20)
+        .slice(-21, -1)
         .map((m) => ({
           role: m.role === "customer" ? "user" : "assistant",
           content: m.content,
         }));
-      // Exclude the just-stored customer message to avoid double-counting
-      const historyWithoutCurrent = historyMessages.slice(0, -1);
       const chatMessages: ChatMessage[] = [
-        ...historyWithoutCurrent,
+        ...historyMessages,
         { role: "user", content: userText },
       ];
 
@@ -561,13 +609,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
         }
 
         const escalationReply = stripMarkdown(pipelineContent);
-        const escalReplyRes = await fetch("https://api.line.me/v2/bot/message/reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ replyToken, messages: [{ type: "text", text: escalationReply.length > 5000 ? escalationReply.slice(0, 4997) + "..." : escalationReply }] }),
-        }).catch(() => null);
+        let escalSent = false;
+        try {
+          await replyToLine(replyToken, escalationReply, accessToken);
+          escalSent = true;
+        } catch { /* non-critical */ }
 
-        if (escalReplyRes?.ok) {
+        if (escalSent) {
           await chatStore.addMessage(businessId, lineUserId, {
             role: "bot", content: escalationReply, timestamp: Date.now(),
             pipelineLayer: pipelineTrace.finalLayer, pipelineLayerName: "Safety: Admin Escalation",
@@ -591,11 +639,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         await chatStore.addMessage(businessId, lineUserId, {
           role: "admin", content: `[ระบบ] ปักหมุดอัตโนมัติ — ข้อความไม่ต่อเนื่อง (gap: ${gapHours}h, L${pipelineTrace.finalLayer}) รอแอดมินตอบ`, timestamp: Date.now(),
         });
-        await fetch("https://api.line.me/v2/bot/message/reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ replyToken, messages: [{ type: "text", text: "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ" }] }),
-        }).catch(() => {});
+        try {
+          await replyToLine(replyToken, "สวัสดีครับ ข้อความของท่านได้รับแล้ว รอสักครู่ แอดมินจะติดต่อกลับครับ", accessToken);
+        } catch { /* reply token may expire */ }
         diag.autoPinned = true;
         diag.skippedReason = "auto_pinned_discontinuous";
         results.push(diag);
@@ -609,7 +655,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       } else {
         const chatSummary = await chatStore.getChatSummary(businessId, lineUserId).catch(() => null);
         const systemPrompt = buildSystemPrompt(biz, undefined, chatSummary);
-        const gptResponse = await callGptFallback(userText, systemPrompt, businessId, historyWithoutCurrent);
+        const gptResponse = await callGptFallback(userText, systemPrompt, businessId, historyMessages);
         replyText = gptResponse || pipelineContent;
         diag.gptUsed = !!gptResponse;
       }
@@ -705,6 +751,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
       usage: `POST /api/line/webhook/${businessId}`,
     });
   }
+
+  // Debug mode requires admin session
+  const { requireAdminSession, unauthorizedResponse } = await import("@/lib/auth");
+  const session = await requireAdminSession(req, businessId);
+  if (!session) return unauthorizedResponse();
 
   // Debug mode: test pipeline + LINE API token
   const diagnostics: Record<string, unknown> = {

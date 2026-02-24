@@ -131,22 +131,37 @@ export async function getFunnelData(
 ): Promise<{ date: string; stage: FunnelStage; count: number }[]> {
   if (!redis) return [];
 
-  const results: { date: string; stage: FunnelStage; count: number }[] = [];
-
+  // Build all date keys upfront
   const today = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const dateKeys: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
-    const dateKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    dateKeys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`);
+  }
 
+  // Use a single Redis pipeline instead of sequential GETs (N*M → 1 round trip)
+  const pipeline = redis.pipeline();
+  for (const dateKey of dateKeys) {
     for (const stage of FUNNEL_STAGES) {
-      try {
-        const val = await redis.get(`funnel:${businessId}:${dateKey}:${stage}`);
-        const count = val ? parseInt(val as string, 10) : 0;
-        if (count > 0) {
-          results.push({ date: dateKey, stage, count });
-        }
-      } catch {
-        // skip
+      pipeline.get(`funnel:${businessId}:${dateKey}:${stage}`);
+    }
+  }
+
+  let pipelineResults: [Error | null, unknown][];
+  try {
+    pipelineResults = await pipeline.exec();
+  } catch {
+    return [];
+  }
+
+  const results: { date: string; stage: FunnelStage; count: number }[] = [];
+  let idx = 0;
+  for (const dateKey of dateKeys) {
+    for (const stage of FUNNEL_STAGES) {
+      const [err, val] = pipelineResults[idx++] ?? [null, null];
+      if (!err && val) {
+        const count = parseInt(val as string, 10);
+        if (count > 0) results.push({ date: dateKey, stage, count });
       }
     }
   }
