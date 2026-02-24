@@ -72,6 +72,31 @@ export async function isReplyTokenProcessed(replyToken: string): Promise<boolean
 }
 
 /**
+ * Offline-message cooldown guard.
+ * Prevents sending the same offline/outside-hours message to a user repeatedly.
+ * Returns true if the message was ALREADY sent within the cooldown window (skip it).
+ * Returns false if this is the first time within the window (send it).
+ *
+ * TTL default = 10 minutes — one offline nudge per 10 min per user.
+ * Key: offlinecooldown:{businessId}:{userId}
+ */
+export async function isOfflineMessageOnCooldown(
+  businessId: string,
+  userId: string,
+  cooldownSec = 600 // 10 minutes
+): Promise<boolean> {
+  const redis = g.__redis_rl;
+  if (!redis) return false; // fail open: no redis → always send
+  try {
+    const key = `offlinecooldown:${businessId}:${userId}`;
+    const result = await redis.set(key, "1", "EX", cooldownSec, "NX");
+    return result === null; // null = key already existed = on cooldown
+  } catch {
+    return false; // fail open on Redis error
+  }
+}
+
+/**
  * Get current message count for a userId in the current window.
  * Useful for returning rate limit headers.
  */

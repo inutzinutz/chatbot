@@ -6,6 +6,7 @@ import {
   type ChatMessage,
 } from "@/lib/pipeline";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
+import { isOfflineMessageOnCooldown } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 25; // seconds (Vercel Hobby limit)
@@ -426,10 +427,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       diag.withinBusinessHours = withinHours;
 
       if (!withinHours && lineSettings?.offlineMessage) {
-        try {
-          await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
-          diag.sentOfflineMessage = true;
-        } catch { /* non-critical */ }
+        const onCooldown = await isOfflineMessageOnCooldown(businessId, lineUserId);
+        if (!onCooldown) {
+          try {
+            await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
+            diag.sentOfflineMessage = true;
+          } catch { /* non-critical */ }
+        }
         diag.skippedReason = "outside_business_hours";
         results.push(diag);
         continue;
@@ -440,11 +444,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       diag.globalBotEnabled = globalBotEnabled;
 
       if (!globalBotEnabled) {
+        // Send offline message only once per 10 min — avoid spamming customer
         if (lineSettings?.offlineMessage) {
-          try {
-            await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
-            diag.sentOfflineMessage = true;
-          } catch { /* non-critical */ }
+          const onCooldown = await isOfflineMessageOnCooldown(businessId, lineUserId);
+          if (!onCooldown) {
+            try {
+              await pushToLine(lineUserId, stripMarkdown(lineSettings.offlineMessage), accessToken);
+              diag.sentOfflineMessage = true;
+            } catch { /* non-critical */ }
+          }
         }
         diag.skippedReason = "global_bot_disabled";
         results.push(diag);
