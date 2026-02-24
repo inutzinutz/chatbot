@@ -426,6 +426,13 @@ function buildContextualResponse(
   }
 
   if (ctx.isFollowUp && p) {
+    // ── Negation guard: "ไม่เอา", "ไม่ชอบ", "ไม่สนใจ" etc. → customer rejected this product
+    // Return null so the pipeline can handle it as a fresh question (show catalog or clarify)
+    const NEGATION_PREFIXES = ["ไม่เอา", "ไม่ชอบ", "ไม่สนใจ", "ไม่ต้องการ", "ไม่อยากได้", "ไม่เอา", "not interested", "no thanks", "don't want"];
+    if (NEGATION_PREFIXES.some((n) => lower.startsWith(n) || lower.includes(" " + n))) {
+      return null; // Let pipeline handle as new query
+    }
+
     const affirmations = ["เอา", "ได้", "ครับ", "ค่ะ", "โอเค", "ok", "yes", "ตกลง", "เอาเลย"];
     if (affirmations.some((a) => lower === a || lower.startsWith(a + " "))) {
       return `ดีเลยครับ! สำหรับ **${p.name}** ราคา **${p.price.toLocaleString()} บาท**\n\nสามารถสั่งซื้อได้ผ่าน:\n${biz.orderChannelsText}\n\nหรือต้องการทราบข้อมูลเพิ่มเติมก่อนไหมครับ?`;
@@ -1074,11 +1081,41 @@ export function generatePipelineResponseWithTrace(
     const preTop = preScore.length > 0 && preScore[0].score >= 2 ? preScore[0] : null;
     const isEscalationIntent = preTop && ESCALATION_INTENT_IDS.has(preTop.intent.id);
 
+    // ── Catalog-browse guard: "มีรุ่นอื่นไหม", "แนะนำรุ่นอื่น" etc.
+    // Customer wants to browse alternatives — show category catalog, not follow-up on active product
+    const CATALOG_BROWSE_PATTERNS = [
+      "มีรุ่นอื่นไหม", "มีรุ่นอื่นมั้ย", "รุ่นอื่นไหม", "รุ่นอื่นมั้ย",
+      "แนะนำรุ่นอื่น", "แนะนำรุ่นไหน", "มีรุ่นอะไรบ้าง", "มีรุ่นอื่นอีกไหม",
+      "other model", "other option", "another model", "what else",
+      "ตัวอื่นไหม", "ตัวอื่นมั้ย", "มีตัวอื่นไหม",
+    ];
+    const isCatalogBrowse = CATALOG_BROWSE_PATTERNS.some((p) => lower.includes(p));
+
     if (isEscalationIntent) {
       addStep(5, "Context Resolution", `ข้าม Layer 5 — intent "${preTop!.intent.id}" ต้อง escalate`, "skipped", t, {
         intent: preTop!.intent.id,
         score: preTop!.score,
       });
+    } else if (isCatalogBrowse) {
+      // Show all active products in the same category as the active product
+      const category = ctx.activeProduct.category;
+      const sameCategory = biz.getActiveProducts().filter((p) => p.category === category);
+      let catalogText: string;
+      if (sameCategory.length > 0 && category === "มอเตอร์ไซค์ไฟฟ้า EM") {
+        catalogText = buildEMCatalogResponse(sameCategory, biz);
+      } else if (sameCategory.length > 0) {
+        const lines = sameCategory.map((p) => `• **${p.name}** — ${p.price.toLocaleString()} บาท\n  ${p.description.split("\n")[0]}`);
+        catalogText = `รุ่นที่มีในหมวด **${category}** ครับ:\n\n${lines.join("\n\n")}\n\nสนใจรุ่นไหนครับ?`;
+      } else {
+        catalogText = `ขณะนี้มีเฉพาะ **${ctx.activeProduct.name}** ในหมวดนี้ครับ สนใจสอบถามเพิ่มเติมได้เลยครับ!`;
+      }
+      addStep(5, "Context Resolution", `Catalog browse — แสดงรุ่นทั้งหมดใน ${category}`, "matched", t, {
+        intent: "catalog_browse",
+        matchedProducts: sameCategory.map((p) => p.name),
+      });
+      finalLayer = 5;
+      finalLayerName = `Context: catalog browse → ${category}`;
+      return finishTrace(catalogText);
     } else {
       const contextResponse = buildContextualResponse(ctx, userMessage, biz);
       if (contextResponse) {
