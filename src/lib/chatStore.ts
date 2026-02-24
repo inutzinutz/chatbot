@@ -562,7 +562,9 @@ class ChatStore {
   /** Check if global bot is enabled for a business (default: enabled) */
   async isGlobalBotEnabled(businessId: string): Promise<boolean> {
     const val = await redis.get(`globalbot:${businessId}`);
-    return val !== "0"; // Default: enabled (null or "1")
+    const enabled = val !== "0"; // Default: enabled (null or "1")
+    console.log(`[chatStore] isGlobalBotEnabled(${businessId}): raw="${val}" type=${typeof val} → ${enabled}`);
+    return enabled;
   }
 
   // ── Vision Feature Toggle ──

@@ -438,6 +438,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       // ── Check global bot toggle (entire business) ──
       const globalBotEnabled = await chatStore.isGlobalBotEnabled(businessId);
       diag.globalBotEnabled = globalBotEnabled;
+      console.log(`[webhook/path] businessId="${businessId}" userId="${lineUserId}" globalBotEnabled=${globalBotEnabled}`);
 
       if (!globalBotEnabled) {
         if (lineSettings?.offlineMessage) {
