@@ -535,19 +535,19 @@ const dji13serviceConfig: BusinessConfig = {
 /*  Registry                                                          */
 /* ------------------------------------------------------------------ */
 
-export const businessUnits: Record<string, BusinessConfig> = {
+export const businessUnits: Readonly<Record<string, BusinessConfig>> = Object.freeze({
   dji13store: djiConfig,
   evlifethailand: evlifeConfig,
   dji13support: dji13supportConfig,
   dji13service: dji13serviceConfig,
-};
+});
 
-export const businessUnitList = [
-  { id: "dji13store", name: "DJI 13 STORE", shortName: "DJI 13", description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ", primaryColor: "#3b82f6", icon: "drone" },
-  { id: "evlifethailand", name: "EV Life Thailand", shortName: "EV Life", description: "แบตเตอรี่ LiFePO4 & มอเตอร์ไซค์ไฟฟ้า EM", primaryColor: "#f97316", icon: "battery" },
-  { id: "dji13support", name: "Support @ DJI 13 Store", shortName: "13 Support", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" },
-  { id: "dji13service", name: "ทีมเอกสาร DJI 13 Store", shortName: "13 Docs", description: "ขึ้นทะเบียนโดรน กสทช. และขออนุญาต CAAT ครบวงจร", primaryColor: "#6366f1", icon: "file-text" },
-] as const;
+export const businessUnitList = Object.freeze([
+  Object.freeze({ id: "dji13store", name: "DJI 13 STORE", shortName: "DJI 13", description: "ตัวแทนจำหน่าย DJI อย่างเป็นทางการ", primaryColor: "#3b82f6", icon: "drone" }),
+  Object.freeze({ id: "evlifethailand", name: "EV Life Thailand", shortName: "EV Life", description: "แบตเตอรี่ LiFePO4 & มอเตอร์ไซค์ไฟฟ้า EM", primaryColor: "#f97316", icon: "battery" }),
+  Object.freeze({ id: "dji13support", name: "Support @ DJI 13 Store", shortName: "13 Support", description: "ศูนย์ซ่อม เคลม DJI Care Refresh และบริการโดรน DJI", primaryColor: "#ef4444", icon: "wrench" }),
+  Object.freeze({ id: "dji13service", name: "ทีมเอกสาร DJI 13 Store", shortName: "13 Docs", description: "ขึ้นทะเบียนโดรน กสทช. และขออนุญาต CAAT ครบวงจร", primaryColor: "#6366f1", icon: "file-text" }),
+] as const);
 
 export const DEFAULT_BUSINESS_ID = "dji13store";
 
