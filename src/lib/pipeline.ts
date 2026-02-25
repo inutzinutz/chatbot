@@ -121,6 +121,72 @@ export function classifyIntent(message: string, biz: BusinessConfig, threshold =
 }
 
 // ─────────────────────────────────────────────────────────────
+// REPETITION GUARD
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Normalise a bot response string for repetition comparison.
+ * - Lowercase
+ * - Collapse whitespace / newlines
+ * - Strip markdown bold markers (**) and emoji
+ */
+function normaliseForRepetition(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Returns true when `candidate` is too similar to a recent bot reply.
+ *
+ * Similarity is measured by a simple token-overlap Jaccard index:
+ *   overlap = |A ∩ B| / |A ∪ B|
+ *
+ * Threshold: 0.72  (≈72% of unique words overlap → consider it a repeat)
+ * We look at the last `windowSize` assistant messages (default 3).
+ */
+function isTooSimilarToRecentReply(
+  candidate: string,
+  allMessages: ChatMessage[],
+  windowSize = 3,
+  threshold = 0.72
+): boolean {
+  const recentBotMessages = allMessages
+    .filter((m) => m.role === "assistant")
+    .slice(-windowSize);
+
+  if (recentBotMessages.length === 0) return false;
+
+  const tokensOf = (text: string) =>
+    new Set(normaliseForRepetition(text).split(" ").filter((w) => w.length > 1));
+
+  const candidateTokens = tokensOf(candidate);
+  if (candidateTokens.size === 0) return false;
+
+  for (const msg of recentBotMessages) {
+    const recentTokens = tokensOf(msg.content);
+    if (recentTokens.size === 0) continue;
+
+    // Intersection
+    let intersectSize = 0;
+    for (const t of candidateTokens) {
+      if (recentTokens.has(t)) intersectSize++;
+    }
+
+    // Union
+    const unionSize = candidateTokens.size + recentTokens.size - intersectSize;
+    const jaccard = intersectSize / unionSize;
+
+    if (jaccard >= threshold) return true;
+  }
+
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────
 // CONVERSATION CONTEXT
 // ─────────────────────────────────────────────────────────────
 
@@ -907,6 +973,23 @@ export function generatePipelineResponseWithTrace(
   let finalLayerName = "";
   let finalIntent: string | undefined;
 
+  /**
+   * Wrap a candidate response with the repetition guard.
+   * If the candidate is too similar to a recent bot reply, return null
+   * so the pipeline can fall through to the next layer.
+   *
+   * Safety layers (1-4) and escalation responses are NEVER suppressed —
+   * it is important that admin escalation / stock / VAT replies always fire.
+   *
+   * @param candidate  The response string to evaluate
+   * @param isSafetyLayer  Set to true for layers 1-4 and admin escalation
+   */
+  function guardRepetition(candidate: string, isSafetyLayer = false): string | null {
+    if (isSafetyLayer) return candidate; // never suppress safety responses
+    if (isTooSimilarToRecentReply(candidate, allMessages)) return null;
+    return candidate;
+  }
+
   const addStep = (
     layer: number,
     name: string,
@@ -1212,8 +1295,16 @@ export function generatePipelineResponseWithTrace(
         // If there is prior conversation history, use a short acknowledgement
         // instead of the full welcome message to avoid repeating it every time
         const isReturningGreet = allMessages.length > 2;
+        // Rotate short greeting variants to avoid saying the same thing every time
+        const GREETING_VARIANTS = [
+          "สวัสดีครับ! มีอะไรให้ช่วยเพิ่มเติมไหมครับ?",
+          "สวัสดีครับ! วันนี้สนใจเรื่องอะไรครับ?",
+          "ยินดีต้อนรับครับ! ถามได้เลยครับ 😊",
+          "สวัสดีครับ! ให้ผมช่วยอะไรได้บ้างครับ?",
+        ];
+        const variantIdx = allMessages.length % GREETING_VARIANTS.length;
         const greetText = isReturningGreet
-          ? "สวัสดีครับ! มีอะไรให้ช่วยเพิ่มเติมไหมครับ?"
+          ? GREETING_VARIANTS[variantIdx]
           : intent.responseTemplate;
         const greetResult = finishTrace(greetText);
         greetResult.clarifyOptions = isReturningGreet
@@ -1566,15 +1657,23 @@ export function generatePipelineResponseWithTrace(
     }
 
     if (intentResponse !== null) {
-      addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
-      finalLayer = 6;
-      finalLayerName = `Intent: ${intent.name}`;
-      finalIntent = intent.id;
-      const intentResult = finishTrace(intentResponse);
-      if (intentDetails.carouselProducts) {
-        intentResult.carouselProducts = intentDetails.carouselProducts as Product[];
+      const guardedIntent = guardRepetition(intentResponse);
+      if (guardedIntent !== null) {
+        addStep(6, "Intent Engine", "จับ intent ด้วย multi-signal scoring", "matched", t, intentDetails);
+        finalLayer = 6;
+        finalLayerName = `Intent: ${intent.name}`;
+        finalIntent = intent.id;
+        const intentResult = finishTrace(guardedIntent);
+        if (intentDetails.carouselProducts) {
+          intentResult.carouselProducts = intentDetails.carouselProducts as Product[];
+        }
+        return intentResult;
+      } else {
+        addStep(6, "Intent Engine", "จับ intent แต่ตอบซ้ำ — pass-through", "checked", t, {
+          ...intentDetails,
+          intent: `${intentDetails.intent} [repeat-suppressed]`,
+        });
       }
-      return intentResult;
     } else {
       addStep(6, "Intent Engine", "จับ intent แล้วแต่ pass-through", "checked", t, intentDetails);
     }
@@ -1591,27 +1690,44 @@ export function generatePipelineResponseWithTrace(
   t = now();
   const matchedScript = biz.matchSaleScript(userMessage);
   if (matchedScript) {
-    addStep(7, "Sale Scripts", "จับคู่กับ sale script", "matched", t, {
-      matchedScript: matchedScript.triggers.join(", "),
-    });
-    finalLayer = 7;
-    finalLayerName = "Sale Script";
-    return finishTrace(matchedScript.adminReply);
+    const guardedScript = guardRepetition(matchedScript.adminReply);
+    if (guardedScript !== null) {
+      addStep(7, "Sale Scripts", "จับคู่กับ sale script", "matched", t, {
+        matchedScript: matchedScript.triggers.join(", "),
+      });
+      finalLayer = 7;
+      finalLayerName = "Sale Script";
+      return finishTrace(guardedScript);
+    } else {
+      addStep(7, "Sale Scripts", "sale script ซ้ำกับที่ตอบไปแล้ว — pass-through", "checked", t, {
+        matchedScript: matchedScript.triggers.join(", "),
+      });
+    }
+  } else {
+    addStep(7, "Sale Scripts", "จับคู่กับ sale script", "skipped", t);
   }
-  addStep(7, "Sale Scripts", "จับคู่กับ sale script", "skipped", t);
 
   // ── LAYER 8: Knowledge base ──
   t = now();
   const matchedDoc = biz.matchKnowledgeDoc(userMessage);
   if (matchedDoc) {
-    addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "matched", t, {
-      matchedDoc: matchedDoc.title,
-    });
-    finalLayer = 8;
-    finalLayerName = `Knowledge: ${matchedDoc.title}`;
-    return finishTrace(`📚 **${matchedDoc.title}**\n\n${matchedDoc.content}`);
+    const knowledgeCandidate = `📚 **${matchedDoc.title}**\n\n${matchedDoc.content}`;
+    const guardedDoc = guardRepetition(knowledgeCandidate);
+    if (guardedDoc !== null) {
+      addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "matched", t, {
+        matchedDoc: matchedDoc.title,
+      });
+      finalLayer = 8;
+      finalLayerName = `Knowledge: ${matchedDoc.title}`;
+      return finishTrace(guardedDoc);
+    } else {
+      addStep(8, "Knowledge Base", "knowledge doc ซ้ำกับที่ตอบไปแล้ว — pass-through", "checked", t, {
+        matchedDoc: matchedDoc.title,
+      });
+    }
+  } else {
+    addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "skipped", t);
   }
-  addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "skipped", t);
 
   // ── LAYER 9: FAQ search ──
   t = now();
@@ -1626,14 +1742,23 @@ export function generatePipelineResponseWithTrace(
         )
       );
       if (hit) {
-        addStep(9, "FAQ Search", "ค้นหาจาก FAQ", "matched", t, {
-          matchedFaqTopic: topic,
-          matchedTriggers: keys.filter((k) => lower.includes(k)),
-        });
-        finalLayer = 9;
-        finalLayerName = `FAQ: ${topic}`;
-        faqHit = true;
-        return finishTrace(`📋 **${hit.question}**\n\n${hit.answer}`);
+        const faqCandidate = `📋 **${hit.question}**\n\n${hit.answer}`;
+        const guardedFaq = guardRepetition(faqCandidate);
+        if (guardedFaq !== null) {
+          addStep(9, "FAQ Search", "ค้นหาจาก FAQ", "matched", t, {
+            matchedFaqTopic: topic,
+            matchedTriggers: keys.filter((k) => lower.includes(k)),
+          });
+          finalLayer = 9;
+          finalLayerName = `FAQ: ${topic}`;
+          faqHit = true;
+          return finishTrace(guardedFaq);
+        } else {
+          addStep(9, "FAQ Search", "FAQ ซ้ำกับที่ตอบไปแล้ว — pass-through", "checked", t, {
+            matchedFaqTopic: topic,
+          });
+          faqHit = true; // still mark as hit so we don't log "skipped"
+        }
       }
     }
   }
@@ -1724,12 +1849,19 @@ export function generatePipelineResponseWithTrace(
         }
       }
       if (content) {
-        addStep(12, "Category Specific", `ค้นหาตามหมวด ${label}`, "matched", t, {
-          matchedCategory: category,
-        });
-        finalLayer = 12;
-        finalLayerName = `Category: ${label}`;
-        return finishTrace(content);
+        const guardedCat = guardRepetition(content);
+        if (guardedCat !== null) {
+          addStep(12, "Category Specific", `ค้นหาตามหมวด ${label}`, "matched", t, {
+            matchedCategory: category,
+          });
+          finalLayer = 12;
+          finalLayerName = `Category: ${label}`;
+          return finishTrace(guardedCat);
+        } else {
+          addStep(12, "Category Specific", `หมวด ${label} ซ้ำ — pass-through`, "checked", t, {
+            matchedCategory: category,
+          });
+        }
       }
     }
   }
@@ -1783,7 +1915,20 @@ export function generatePipelineResponseWithTrace(
   finalLayer = 15;
   finalLayerName = "Default Fallback";
 
-  return finishTrace(biz.defaultFallbackMessage);
+  // If the default fallback message was already sent recently, use a shorter variant
+  // to avoid the bot repeating the same long intro message multiple times.
+  const FALLBACK_VARIANTS = [
+    biz.defaultFallbackMessage,
+    `ยังไม่แน่ใจว่าถามเรื่องอะไรครับ 😊 ลองพิมพ์ชื่อสินค้า หรือบอกประเภทที่สนใจได้เลยครับ!`,
+    `ขอโทษด้วยนะครับ ผมยังไม่เข้าใจคำถาม ลองถามใหม่อีกครั้ง หรือติดต่อทีมงานโดยตรงได้เลยครับ:\n${biz.orderChannelsText}`,
+    `ถ้ามีคำถามเพิ่มเติม พิมพ์ได้เลยครับ หรือติดต่อทีมงานที่:\n${biz.orderChannelsText}`,
+  ];
+
+  const defaultCandidate = isTooSimilarToRecentReply(biz.defaultFallbackMessage, allMessages)
+    ? FALLBACK_VARIANTS[allMessages.filter((m) => m.role === "assistant").length % (FALLBACK_VARIANTS.length - 1) + 1]
+    : biz.defaultFallbackMessage;
+
+  return finishTrace(defaultCandidate);
 
   // ──────────────────────────────────────────────
   function finishTrace(content: string): TracedResult {
