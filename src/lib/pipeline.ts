@@ -355,13 +355,49 @@ function extractConversationContext(
 
   // ── Pass 3: topic detection ──
   // First check current message; fall back to last topic seen in history
+
+  // HIGH-PRIORITY OVERRIDES: certain topic combinations must win before the
+  // generic loop runs, because a price word (เท่าไร) inside a shipping
+  // question ("จัดส่งเชียงใหม่ค่าขนส่งเท่าไร") would otherwise mis-classify
+  // as topic="price" and return the product price instead of shipping info.
+
+  // Location words that signal the customer is asking about delivery destination
+  const LOCATION_SIGNALS = [
+    "เชียงใหม่", "ภูเก็ต", "ขอนแก่น", "อุดร", "นครราชสีมา", "โคราช",
+    "สงขลา", "หาดใหญ่", "เชียงราย", "ลำปาง", "พิษณุโลก", "นครสวรรค์",
+    "ระยอง", "ชลบุรี", "พัทยา", "อยุธยา", "สระบุรี", "สุพรรณ", "กาญจนบุรี",
+    "สมุทร", "นนทบุรี", "ปทุมธานี", "ปราจีน", "ฉะเชิงเทรา",
+    "ต่างจังหวัด", "ต่างประเทศ", "จังหวัด", "province", "upcountry",
+    "ภาค", "เหนือ", "อีสาน", "ใต้", "ตะวันออก",
+  ];
+  const SHIPPING_SIGNALS = [
+    "ส่ง", "จัดส่ง", "ขนส่ง", "ค่าส่ง", "shipping", "delivery", "กี่วัน", "ส่งได้ไหม",
+  ];
+
+  const hasLocationSignal = LOCATION_SIGNALS.some((l) => currentLower.includes(l));
+  const hasShippingSignal = SHIPPING_SIGNALS.some((s) => currentLower.includes(s));
+
   let recentTopic: string | null = null;
-  for (const { keys, topic } of TOPIC_PATTERNS) {
-    if (keys.some((k) => currentLower.includes(k))) {
-      recentTopic = topic;
-      break;
+
+  // Override: location + any shipping/price word → treat as shipping inquiry
+  if (hasLocationSignal && (hasShippingSignal || currentLower.includes("เท่าไร") || currentLower.includes("เท่าไหร่"))) {
+    recentTopic = "shipping";
+  }
+
+  if (!recentTopic) {
+    // Shipping topic must be checked BEFORE price to prevent "ค่าขนส่งเท่าไร" → price
+    const ORDERED_TOPIC_PATTERNS = [
+      ...TOPIC_PATTERNS.filter((tp) => tp.topic === "shipping"),
+      ...TOPIC_PATTERNS.filter((tp) => tp.topic !== "shipping"),
+    ];
+    for (const { keys, topic } of ORDERED_TOPIC_PATTERNS) {
+      if (keys.some((k) => currentLower.includes(k))) {
+        recentTopic = topic;
+        break;
+      }
     }
   }
+
   // Topic persistence: if current message has no topic but looks like a follow-up, carry forward
   if (!recentTopic && lastTopicInHistory) {
     recentTopic = lastTopicInHistory;
@@ -442,8 +478,47 @@ function buildContextualResponse(
 
     case "shipping": {
       const isMoto = p.category === "มอเตอร์ไซค์ไฟฟ้า EM";
+
+      // Detect if customer mentioned a specific province/location
+      const LOCATION_SIGNALS_MAP: { signal: string; label: string }[] = [
+        { signal: "เชียงใหม่", label: "เชียงใหม่" },
+        { signal: "ภูเก็ต",   label: "ภูเก็ต" },
+        { signal: "ขอนแก่น",  label: "ขอนแก่น" },
+        { signal: "อุดร",     label: "อุดรธานี" },
+        { signal: "นครราชสีมา", label: "นครราชสีมา" },
+        { signal: "โคราช",    label: "นครราชสีมา" },
+        { signal: "สงขลา",    label: "สงขลา" },
+        { signal: "หาดใหญ่",  label: "สงขลา" },
+        { signal: "เชียงราย", label: "เชียงราย" },
+        { signal: "ลำปาง",    label: "ลำปาง" },
+        { signal: "พิษณุโลก", label: "พิษณุโลก" },
+        { signal: "ระยอง",    label: "ระยอง" },
+        { signal: "ชลบุรี",   label: "ชลบุรี" },
+        { signal: "พัทยา",    label: "ชลบุรี" },
+        { signal: "ต่างจังหวัด", label: "ต่างจังหวัด" },
+      ];
+      const foundLocation = LOCATION_SIGNALS_MAP.find((l) => lower.includes(l.signal));
+      const locationLabel = foundLocation?.label ?? null;
+
+      const BKK_AREA = ["กรุงเทพ", "กทม", "บางกอก", "นนทบุรี", "ปทุมธานี", "สมุทรปราการ"];
+      const isBkkArea = BKK_AREA.some((b) => lower.includes(b));
+
       if (isMoto) {
+        if (isBkkArea) {
+          return `การจัดส่ง **${p.name}** ไป**กรุงเทพฯ และปริมณฑล** ครับ\n\n🚚 **ส่งฟรี** ถึงบ้าน ไม่มีค่าใช้จ่ายเพิ่มครับ\n⏱ รอรับภายใน 3-5 วันทำการ\n\nสั่งซื้อหรือนัดจัดส่งได้เลยครับ:\n${biz.orderChannelsText}`;
+        }
+        if (locationLabel) {
+          return `การจัดส่ง **${p.name}** ไป**${locationLabel}** ครับ\n\n📦 ต่างจังหวัด — มีค่าจัดส่งตามระยะทาง\n⏱ รอรับ 3-7 วันทำการ\n\nทีมงานจะแจ้งค่าขนส่งที่แน่นอนก่อนยืนยันการสั่งซื้อครับ\nติดต่อสอบถามได้เลย:\n${biz.orderChannelsText}`;
+        }
         return `การจัดส่ง **${p.name}** ครับ\n\n🚚 กรุงเทพฯ และปริมณฑล — **ส่งฟรี** ถึงบ้าน\n📦 ต่างจังหวัด — มีค่าจัดส่งตามระยะทาง\n⏱ รอรับ 3-7 วันทำการ\n\nสั่งซื้อผ่านช่องทาง:\n${biz.orderChannelsText}`;
+      }
+
+      // Non-motorcycle (battery On-site service)
+      const ON_SITE_AREA = ["กรุงเทพ", "กทม", "นนทบุรี", "ปทุมธานี", "สมุทรปราการ"];
+      const inOnSiteArea = ON_SITE_AREA.some((b) => lower.includes(b));
+
+      if (locationLabel && !inOnSiteArea) {
+        return `บริการ On-site ของ **${p.name}** ครับ\n\n⚠️ ขณะนี้ให้บริการเฉพาะ **กรุงเทพฯ + นนทบุรี + ปทุมธานี + สมุทรปราการ** ครับ\nยังไม่ครอบคลุม **${locationLabel}** ในขณะนี้\n\nสำหรับพื้นที่ต่างจังหวัด กรุณาติดต่อทีมงานเพื่อสอบถามความเป็นไปได้:\n${biz.orderChannelsText}`;
       }
       return `การบริการ **${p.name}** ครับ\n\n🔧 On-site ถึงบ้าน — ช่างมาเปลี่ยนให้ถึงที่\n✅ ฟรีค่าเดินทาง กรุงเทพฯ + นนทบุรี + ปทุมธานี + สมุทรปราการ\n⏱ นัดหมายล่วงหน้า 1-2 วัน\n\nนัดหมายผ่านช่องทาง:\n${biz.orderChannelsText}`;
     }
@@ -1115,9 +1190,29 @@ export function generatePipelineResponseWithTrace(
 
   // ── LAYER 1: Admin Escalation ──
   t = now();
-  if (biz.matchAdminEscalation(userMessage)) {
-    addStep(1, "Admin Escalation", "ตรวจจับคำขอคุยกับแอดมิน/คนจริง", "matched", t, {
-      matchedTriggers: ["admin escalation keywords"],
+
+  // Extended service/repair escalation: customer says they're coming in or has a repair issue.
+  // These are appointment / after-sales messages that only a human admin can handle.
+  const SERVICE_ESCALATION_KEYWORDS = [
+    // Appointment / visit
+    "เอารถเข้า", "นำรถเข้า", "พารถเข้า", "จะเข้าไป", "จะเข้าศูนย์", "เข้าศูนย์",
+    "นัดช่าง", "นัดซ่อม", "นัดเช็ค", "นัดหมาย",
+    // Repair / part issue
+    "ลูกปืน", "โช๊ค", "ผ้าเบรก", "เบรก", "ยาง", "สายพาน",
+    "มอเตอร์เสีย", "มอเตอร์พัง", "ระบบไฟ", "ฟิวส์",
+    "ซ่อม", "เปลี่ยนอะไหล่", "อะไหล่", "พังแล้ว", "เสียแล้ว",
+    // Service check
+    "เช็คระยะ", "เช็ครถ", "เช็คช่าง", "เช็คลูกปืน", "เช็คเบรก",
+    "ตรวจรถ", "ตรวจเช็ค",
+  ];
+  const isServiceEscalation = SERVICE_ESCALATION_KEYWORDS.some((k) => lower.includes(k));
+
+  if (biz.matchAdminEscalation(userMessage) || isServiceEscalation) {
+    const triggerInfo = isServiceEscalation
+      ? SERVICE_ESCALATION_KEYWORDS.filter((k) => lower.includes(k))
+      : ["admin escalation keywords"];
+    addStep(1, "Admin Escalation", "ตรวจจับคำขอคุยกับแอดมิน/นัดหมาย/ซ่อม", "matched", t, {
+      matchedTriggers: triggerInfo,
     });
     finalLayer = 1;
     finalLayerName = "Safety: Admin Escalation";
@@ -1140,22 +1235,41 @@ export function generatePipelineResponseWithTrace(
   // ── LAYER 3: Stock Inquiry ──
   t = now();
   if (biz.matchStockInquiry(userMessage)) {
-    if (ctx.activeProduct) {
-      addStep(3, "Stock Inquiry", "ตรวจจับคำถามสต็อก + มีบริบทสินค้า", "matched", t, {
-        matchedProducts: [ctx.activeProduct.name],
-      });
-      finalLayer = 3;
-      finalLayerName = "Safety: Stock (contextual)";
-      return finishTrace(
-        `ผมขออนุญาตตรวจสอบสต็อก **${ctx.activeProduct.name}** กับทีมงานให้แน่ชัดก่อนนะครับ\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ ระหว่างนี้ ให้ผมช่วยแนะนำข้อมูลส่วนอื่นก่อนไหมครับ?`
-      );
+    // Guard: if the user is asking about a part/component (e.g. โช๊ค, ลูกปืน, ผ้าเบรก)
+    // they are NOT asking about product stock — they have a technical/repair question.
+    // These are handled by the service escalation in Layer 1, but if they slip through,
+    // don't misclassify them as a stock inquiry.
+    const PARTS_SIGNALS = ["โช๊ค", "ลูกปืน", "ผ้าเบรก", "สายพาน", "อะไหล่", "ฮอนด้า", "ยามาฮ่า", "ใส่แทน", "เทียบ"];
+    const isParts = PARTS_SIGNALS.some((k) => lower.includes(k));
+
+    if (!isParts) {
+      if (ctx.activeProduct) {
+        const stockMsg = `ผมขออนุญาตตรวจสอบสต็อก **${ctx.activeProduct.name}** กับทีมงานให้แน่ชัดก่อนนะครับ\n\nเพื่อข้อมูลที่ถูกต้อง 100% ครับ ระหว่างนี้ ให้ผมช่วยแนะนำข้อมูลส่วนอื่นก่อนไหมครับ?`;
+        // Guard: don't repeat the same stock message
+        if (!isTooSimilarToRecentReply(stockMsg, allMessages)) {
+          addStep(3, "Stock Inquiry", "ตรวจจับคำถามสต็อก + มีบริบทสินค้า", "matched", t, {
+            matchedProducts: [ctx.activeProduct.name],
+          });
+          finalLayer = 3;
+          finalLayerName = "Safety: Stock (contextual)";
+          return finishTrace(stockMsg);
+        } else {
+          addStep(3, "Stock Inquiry", "stock reply ซ้ำ — pass-through", "checked", t, {
+            matchedProducts: [ctx.activeProduct.name],
+          });
+        }
+      } else {
+        addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "matched", t);
+        finalLayer = 3;
+        finalLayerName = "Safety: Stock Inquiry";
+        return finishTrace(biz.buildStockCheckResponse());
+      }
+    } else {
+      addStep(3, "Stock Inquiry", "ตรวจพบ parts/repair query — ข้ามไป escalation", "skipped", t);
     }
-    addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "matched", t);
-    finalLayer = 3;
-    finalLayerName = "Safety: Stock Inquiry";
-    return finishTrace(biz.buildStockCheckResponse());
+  } else {
+    addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "skipped", t);
   }
-  addStep(3, "Stock Inquiry", "ตรวจจับคำถามเรื่องสต็อกสินค้า", "skipped", t);
 
   // ── LAYER 4: Discontinued product detection ──
   t = now();
@@ -1227,18 +1341,29 @@ export function generatePipelineResponseWithTrace(
     } else {
       const contextResponse = buildContextualResponse(ctx, userMessage, biz);
       if (contextResponse) {
-        addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา", "matched", t, {
-          intent: `follow-up: ${ctx.recentTopic || "general"}`,
+        // Apply repetition guard to Layer 5 context responses too.
+        // If the bot just answered this same product+topic, pass through so later layers
+        // (product search, FAQ, AI) can give a fresh answer.
+        const guardedCtx = guardRepetition(contextResponse);
+        if (guardedCtx !== null) {
+          addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา", "matched", t, {
+            intent: `follow-up: ${ctx.recentTopic || "general"}`,
+            matchedProducts: [ctx.activeProduct.name],
+            matchedTriggers: FOLLOW_UP_PATTERNS.filter((p) => lower.includes(p)),
+          });
+          finalLayer = 5;
+          finalLayerName = `Context: ${ctx.activeProduct.name} → ${ctx.recentTopic || "detail"}`;
+          return finishTrace(guardedCtx);
+        } else {
+          addStep(5, "Context Resolution", "context response ซ้ำกับที่ตอบไปแล้ว — pass-through", "checked", t, {
+            matchedProducts: [ctx.activeProduct.name],
+          });
+        }
+      } else {
+        addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา (ไม่จับ topic ได้)", "checked", t, {
           matchedProducts: [ctx.activeProduct.name],
-          matchedTriggers: FOLLOW_UP_PATTERNS.filter((p) => lower.includes(p)),
         });
-        finalLayer = 5;
-        finalLayerName = `Context: ${ctx.activeProduct.name} → ${ctx.recentTopic || "detail"}`;
-        return finishTrace(contextResponse);
       }
-      addStep(5, "Context Resolution", "ตอบต่อเนื่องจากบริบทสนทนา (ไม่จับ topic ได้)", "checked", t, {
-        matchedProducts: [ctx.activeProduct.name],
-      });
     }
   } else if (ctx.isFollowUp && !ctx.activeProduct) {
     // Follow-up but no product in context — ask which product the customer means
@@ -1246,14 +1371,20 @@ export function generatePipelineResponseWithTrace(
     if (userMessage.trim().length <= 30 && biz.getActiveProducts().length > 0) {
       const cats = [...new Set(biz.getActiveProducts().map((p) => p.category))];
       const catList = cats.map((c) => `• ${c}`).join("\n");
-      addStep(5, "Context Resolution", "Follow-up สั้น แต่ไม่มีสินค้าในบริบท — ถามกลับ", "matched", t);
-      finalLayer = 5;
-      finalLayerName = "Context: ambiguous follow-up";
-      return finishTrace(
-        `ขออภัยครับ ผมไม่แน่ใจว่าถามเกี่ยวกับสินค้าตัวไหนครับ 😊\n\nเราจำหน่ายสินค้าหมวดหมู่เหล่านี้ครับ:\n${catList}\n\nรบกวนระบุรุ่นหรือประเภทสินค้าที่สนใจด้วยนะครับ`
-      );
+      const ambiguousMsg = `ขออภัยครับ ผมไม่แน่ใจว่าถามเกี่ยวกับสินค้าตัวไหนครับ 😊\n\nเราจำหน่ายสินค้าหมวดหมู่เหล่านี้ครับ:\n${catList}\n\nรบกวนระบุรุ่นหรือประเภทสินค้าที่สนใจด้วยนะครับ`;
+      // Guard: don't repeat this message if bot just said it
+      const guardedAmbiguous = guardRepetition(ambiguousMsg);
+      if (guardedAmbiguous !== null) {
+        addStep(5, "Context Resolution", "Follow-up สั้น แต่ไม่มีสินค้าในบริบท — ถามกลับ", "matched", t);
+        finalLayer = 5;
+        finalLayerName = "Context: ambiguous follow-up";
+        return finishTrace(guardedAmbiguous);
+      } else {
+        addStep(5, "Context Resolution", "ambiguous follow-up ซ้ำ — pass-through", "checked", t);
+      }
+    } else {
+      addStep(5, "Context Resolution", "Follow-up แต่ไม่มีสินค้าในบริบท", "skipped", t);
     }
-    addStep(5, "Context Resolution", "Follow-up แต่ไม่มีสินค้าในบริบท", "skipped", t);
   } else {
     addStep(5, "Context Resolution", "ไม่ใช่ follow-up message", "skipped", t);
   }
@@ -1488,10 +1619,21 @@ export function generatePipelineResponseWithTrace(
         return escalL6Result;
       }
       case "budget_recommendation": {
-        const budgetMatch = lower.match(/(\d[\d,]*)\s*(บาท|฿)?/);
+        // Guard: do NOT parse time expressions as budget (e.g. "14.00น.", "11 โมง", "09:00")
+        // A real budget number must be ≥ 100 OR explicitly have บาท/฿ unit
+        const TIME_PATTERN = /\b\d{1,2}[.:]\d{2}\s*(น\.?|am|pm|นาฬิกา)?\b|\b\d{1,2}\s*(โมง|ทุ่ม|นาฬิกา)\b/i;
+        if (TIME_PATTERN.test(lower)) {
+          // Message is about time, not budget — pass through to next layer
+          break;
+        }
+        const budgetMatchRaw = lower.match(/(\d[\d,]*)\s*(บาท|฿)/);
+        const budgetMatchNoUnit = lower.match(/(\d{4,})/); // bare number ≥ 4 digits only
+        const budgetMatch = budgetMatchRaw || budgetMatchNoUnit;
         const budget = budgetMatch
           ? parseInt(budgetMatch[1].replace(/,/g, ""))
           : null;
+        // Sanity: ignore implausibly small "budgets" (< 100 บาท) that are likely not prices
+        if (budget !== null && budget < 100) break;
 
         // Detect context: is the customer asking about a motorcycle or a car battery?
         const MOTO_SIGNALS = ["คัน", "มอไซ", "มอเตอร์ไซ", "motorcycle", "ขับ", "ขี่", "em ", " em", "legend", "milan", "owen", "endo", "หมู่บ้าน", "ในเมือง", "ทางไกล"];
