@@ -21,9 +21,11 @@ import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
   type ChatMessage,
+  type LearnedData,
 } from "@/lib/pipeline";
 import { buildFbGenericCarousel } from "@/lib/carouselBuilder";
 import { chatStore } from "@/lib/chatStore";
+import { learnedStore } from "@/lib/learnedStore";
 import {
   buildVisionSystemPrompt,
   buildVisionUserPrompt,
@@ -293,8 +295,10 @@ export async function POST(req: NextRequest) {
         content: m.content,
       }));
 
-      // ── Run pipeline ──
-      const pipelineResult = generatePipelineResponseWithTrace(userText, chatHistory, biz);
+      // ── Run pipeline (with auto-learned data) ──
+      let learnedData: LearnedData | null = null;
+      try { learnedData = await learnedStore.getAllLearnedData(businessId); } catch { /* non-fatal */ }
+      const pipelineResult = generatePipelineResponseWithTrace(userText, chatHistory, biz, null, learnedData);
 
       let replyText: string;
 

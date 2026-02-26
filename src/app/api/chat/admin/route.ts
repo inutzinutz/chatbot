@@ -625,13 +625,36 @@ export async function POST(req: NextRequest) {
         businessId,
         userId,
         displayName,
-        botMessage,
-        adminCorrection,
-        userQuestion,
+        botMessage: botMessage as string,
+        adminCorrection: adminCorrection as string,
+        userQuestion: userQuestion as string,
         correctedBy: sentBy,
         timestamp: Date.now(),
         suggestedForKB: false,
       });
+
+      // ── Fire-and-forget auto-learning ──
+      // Trigger /api/learn in the background so the bot can learn from this correction.
+      // We do NOT await — admin should not have to wait for the AI analysis.
+      const learnUrl = new URL("/api/learn", req.url).toString();
+      const internalSecret = process.env.INTERNAL_SECRET ?? "chatbot-internal";
+      fetch(learnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": internalSecret,
+        },
+        body: JSON.stringify({
+          businessId,
+          userQuestion,
+          botMessage,
+          adminCorrection,
+          correctionId: entry.id,
+        }),
+      }).catch((err) => {
+        console.error("[admin/logCorrection] Fire-and-forget learn failed:", err);
+      });
+
       return NextResponse.json({ success: true, entry });
     }
 

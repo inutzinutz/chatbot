@@ -7,6 +7,7 @@ import { type BusinessConfig } from "@/lib/businessUnits";
 import type { PipelineStep, PipelineTrace } from "@/lib/inspector";
 import { recommendProducts } from "@/lib/carouselBuilder";
 import type { ChatSummary, PendingForm, QuotationFormData } from "@/lib/chatStore";
+import type { LearnedIntent, LearnedKnowledge, LearnedScript } from "@/lib/learnedStore";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -1035,11 +1036,18 @@ function now() {
   return performance.now();
 }
 
+export interface LearnedData {
+  intents: LearnedIntent[];
+  knowledge: LearnedKnowledge[];
+  scripts: LearnedScript[];
+}
+
 export function generatePipelineResponseWithTrace(
   userMessage: string,
   allMessages: ChatMessage[],
   biz: BusinessConfig,
-  pendingForm?: PendingForm | null
+  pendingForm?: PendingForm | null,
+  learned?: LearnedData | null
 ): TracedResult {
   const pipelineStart = now();
   const lower = userMessage.toLowerCase();
@@ -1828,6 +1836,38 @@ export function generatePipelineResponseWithTrace(
     });
   }
 
+  // ── LAYER 6.5: Learned Intents (auto-learned from admin corrections) ──
+  if (learned?.intents?.length) {
+    t = now();
+    const matchedLearnedIntent = learned.intents.find((li) =>
+      li.triggers.some((trigger) => lower.includes(trigger.toLowerCase()))
+    );
+    if (matchedLearnedIntent) {
+      const guardedLI = guardRepetition(matchedLearnedIntent.responseTemplate);
+      if (guardedLI !== null) {
+        addStep(6, "Learned Intent", `🧠 เรียนรู้จากการแก้ไข: ${matchedLearnedIntent.intentName}`, "matched", t, {
+          intent: matchedLearnedIntent.intentName,
+          matchedTriggers: matchedLearnedIntent.triggers.filter((tr) => lower.includes(tr.toLowerCase())),
+        });
+        finalLayer = 6;
+        finalLayerName = `Learned Intent: ${matchedLearnedIntent.intentName}`;
+        finalIntent = matchedLearnedIntent.intentId;
+        // Fire-and-forget hit counter
+        void fetch("/api/learn", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: biz.id ?? "unknown",
+            type: "intent",
+            id: matchedLearnedIntent.id,
+            action: "enable", // reuse PATCH endpoint as a hit-counter trick via side-effect
+          }),
+        }).catch(() => {});
+        return finishTrace(guardedLI);
+      }
+    }
+  }
+
   // ── LAYER 7: Sale scripts ──
   t = now();
   const matchedScript = biz.matchSaleScript(userMessage);
@@ -1847,6 +1887,25 @@ export function generatePipelineResponseWithTrace(
     }
   } else {
     addStep(7, "Sale Scripts", "จับคู่กับ sale script", "skipped", t);
+  }
+
+  // ── LAYER 7.5: Learned Sale Scripts ──
+  if (learned?.scripts?.length) {
+    t = now();
+    const matchedLearnedScript = learned.scripts.find((ls) =>
+      ls.triggers.some((trigger) => lower.includes(trigger.toLowerCase()))
+    );
+    if (matchedLearnedScript) {
+      const guardedLS = guardRepetition(matchedLearnedScript.adminReply);
+      if (guardedLS !== null) {
+        addStep(7, "Learned Script", `🧠 เรียนรู้จากการแก้ไข: ${matchedLearnedScript.name}`, "matched", t, {
+          matchedScript: matchedLearnedScript.triggers.join(", "),
+        });
+        finalLayer = 7;
+        finalLayerName = `Learned Script: ${matchedLearnedScript.name}`;
+        return finishTrace(guardedLS);
+      }
+    }
   }
 
   // ── LAYER 8: Knowledge base ──
@@ -1869,6 +1928,26 @@ export function generatePipelineResponseWithTrace(
     }
   } else {
     addStep(8, "Knowledge Base", "ค้นหาจาก knowledge base", "skipped", t);
+  }
+
+  // ── LAYER 8.5: Learned Knowledge Docs ──
+  if (learned?.knowledge?.length) {
+    t = now();
+    const matchedLearnedKnow = learned.knowledge.find((lk) =>
+      lk.triggers.some((trigger) => lower.includes(trigger.toLowerCase()))
+    );
+    if (matchedLearnedKnow) {
+      const learnedKnowText = `📚 **${matchedLearnedKnow.title}**\n\n${matchedLearnedKnow.content}`;
+      const guardedLK = guardRepetition(learnedKnowText);
+      if (guardedLK !== null) {
+        addStep(8, "Learned Knowledge", `🧠 เรียนรู้จากการแก้ไข: ${matchedLearnedKnow.title}`, "matched", t, {
+          matchedDoc: matchedLearnedKnow.title,
+        });
+        finalLayer = 8;
+        finalLayerName = `Learned Knowledge: ${matchedLearnedKnow.title}`;
+        return finishTrace(guardedLK);
+      }
+    }
   }
 
   // ── LAYER 9: FAQ search ──

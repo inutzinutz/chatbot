@@ -4,7 +4,9 @@ import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
   type ChatMessage,
+  type LearnedData,
 } from "@/lib/pipeline";
+import { learnedStore } from "@/lib/learnedStore";
 import { buildLineFlexCarousel } from "@/lib/carouselBuilder";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
 import {
@@ -931,8 +933,12 @@ export async function POST(req: NextRequest) {
       const convForForm = await chatStore.getConversation(businessId, lineUserId);
       const pendingForm = convForForm?.pendingForm ?? null;
 
+      // Load auto-learned data (fire-and-forget safe: empty on Redis failure)
+      let learnedData: LearnedData | null = null;
+      try { learnedData = await learnedStore.getAllLearnedData(businessId); } catch { /* non-fatal */ }
+
       const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts, pendingFormUpdate } =
-        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm);
+        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm, learnedData);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;

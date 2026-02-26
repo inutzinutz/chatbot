@@ -30,6 +30,7 @@ import {
   Users,
   X,
   Kanban,
+  Brain,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { businessUnitList } from "@/lib/businessUnits";
@@ -51,6 +52,7 @@ export type PageId =
   | "shipping"
   | "ai-inspector"
   | "ai-testing"
+  | "learned-data"
   | "channels"
   | "settings";
 
@@ -103,6 +105,7 @@ const NAV_SECTIONS = [
     items: [
       { id: "ai-inspector" as PageId, label: "AI Inspector", icon: ShieldCheck },
       { id: "ai-testing" as PageId, label: "AI Testing", icon: CheckSquare },
+      { id: "learned-data" as PageId, label: "Auto-Learn", icon: Brain, badge: "New" },
     ],
   },
   {

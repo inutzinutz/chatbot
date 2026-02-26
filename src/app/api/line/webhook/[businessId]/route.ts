@@ -4,8 +4,10 @@ import {
   generatePipelineResponseWithTrace,
   buildSystemPrompt,
   type ChatMessage,
+  type LearnedData,
 } from "@/lib/pipeline";
 import { chatStore, type LineChannelSettings } from "@/lib/chatStore";
+import { learnedStore } from "@/lib/learnedStore";
 import { isUserRateLimited, isReplyTokenProcessed } from "@/lib/rateLimit";
 import { buildLineFlexCarousel } from "@/lib/carouselBuilder";
 import { logTokenUsage } from "@/lib/tokenTracker";
@@ -558,8 +560,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const convForForm = await chatStore.getConversation(businessId, lineUserId);
       const pendingForm = convForForm?.pendingForm ?? null;
 
+      // Load auto-learned data
+      let learnedData: LearnedData | null = null;
+      try { learnedData = await learnedStore.getAllLearnedData(businessId); } catch { /* non-fatal */ }
+
       const { content: pipelineContent, trace: pipelineTrace, isAdminEscalation, isCancelEscalation, carouselProducts, pendingFormUpdate } =
-        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm);
+        generatePipelineResponseWithTrace(userText, chatMessages, biz, pendingForm, learnedData);
 
       diag.pipelineLayer = pipelineTrace.finalLayer;
       diag.pipelineLayerName = pipelineTrace.finalLayerName;

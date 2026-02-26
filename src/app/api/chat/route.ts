@@ -7,8 +7,10 @@ import {
   buildSystemPrompt,
   buildSystemPromptParts,
   type ChatMessage,
+  type LearnedData,
 } from "@/lib/pipeline";
 import { isUserRateLimited } from "@/lib/rateLimit";
+import { learnedStore } from "@/lib/learnedStore";
 
 export const runtime = "nodejs";
 
@@ -72,7 +74,18 @@ export async function POST(req: NextRequest) {
     // Web chat is stateless (edge runtime) — pass pendingForm from request body if provided
     // ══════════════════════════════════════════════════════
     const { pendingForm: clientPendingForm } = body as { pendingForm?: import("@/lib/chatStore").PendingForm | null };
-    const pipelineResult = generatePipelineResponseWithTrace(userMessage, messages, biz, clientPendingForm ?? null);
+
+    // Load auto-learned data (intents / knowledge / scripts) from Redis.
+    // This is fast (pipeline read from Redis) and enables the bot to use
+    // corrections made by admins without a code deployment.
+    let learnedData: LearnedData | null = null;
+    try {
+      learnedData = await learnedStore.getAllLearnedData(businessId);
+    } catch {
+      // non-fatal: if Redis is down, pipeline runs with static data only
+    }
+
+    const pipelineResult = generatePipelineResponseWithTrace(userMessage, messages, biz, clientPendingForm ?? null, learnedData);
     const { content: pipelineContent, trace: pipelineTrace } = pipelineResult;
 
     // ══════════════════════════════════════════════════════

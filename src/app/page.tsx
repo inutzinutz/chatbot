@@ -20,6 +20,7 @@ import AdminMonitorPage from "@/components/AdminMonitorPage";
 import MonitoringPage from "@/components/MonitoringPage";
 import CRMPage from "@/components/CRMPage";
 import KanbanPage from "@/components/KanbanPage";
+import LearnedDataPage from "@/components/LearnedDataPage";
 import {
   Code,
   ExternalLink,
@@ -250,6 +251,8 @@ export default function Home() {
         return <AIInspector key={businessId} businessId={businessId} />;
       case "ai-testing":
         return <AITesting key={businessId} businessId={businessId} />;
+      case "learned-data":
+        return <LearnedDataPage key={businessId} businessId={businessId} />;
       default:
         return null;
     }
