@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Brain, Trash2, ToggleLeft, ToggleRight, RefreshCw,
   TrendingUp, BookOpen, Zap, FileText, AlertCircle,
-  ThumbsUp, ThumbsDown, ClipboardList,
+  ThumbsUp, ThumbsDown, ClipboardList, DatabaseZap,
 } from "lucide-react";
 import type { LearnedIntent, LearnedKnowledge, LearnedScript, MissEntry, QALogEntry } from "@/lib/learnedStore";
 
@@ -34,6 +34,8 @@ export default function LearnedDataPage({ businessId }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
 
   const loadLearnedData = useCallback(async () => {
     setLoading(true);
@@ -116,6 +118,29 @@ export default function LearnedDataPage({ businessId }: Props) {
       }
     } finally {
       setReviewingId(null);
+    }
+  };
+
+  const handleBackfill = async (dryRun = false) => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch("/api/learn/backfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, dryRun }),
+      });
+      const data = await res.json() as { message?: string; skipped?: boolean; reason?: string; backfilled?: number; previousCount?: number };
+      if (data.skipped) {
+        setBackfillResult(`ดำเนินการแล้วก่อนหน้า (${data.previousCount ?? 0} รายการ) — ลบ flag หรือติดต่อ dev เพื่อรันใหม่`);
+      } else {
+        setBackfillResult(data.message ?? "เสร็จแล้ว");
+        if (!dryRun) void loadQALog();
+      }
+    } catch (e) {
+      setBackfillResult(`Error: ${String(e)}`);
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -212,6 +237,35 @@ export default function LearnedDataPage({ businessId }: Props) {
         {/* ── Review Queue ── */}
         {tab === "review" && (
           <div className="space-y-3">
+            {/* Backfill banner */}
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+              <DatabaseZap className="h-4 w-4 text-blue-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-blue-800">ย้อนดูแชทเก่า</p>
+                <p className="text-xs text-blue-600">โหลดบทสนทนาทั้งหมดที่มีอยู่ใน Redis เพื่อ review</p>
+                {backfillResult && (
+                  <p className="text-xs text-blue-700 mt-1 font-medium">{backfillResult}</p>
+                )}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => void handleBackfill(true)}
+                  disabled={backfilling}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-300 text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50 transition-colors"
+                >
+                  Preview
+                </button>
+                <button
+                  onClick={() => void handleBackfill(false)}
+                  disabled={backfilling}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1"
+                >
+                  {backfilling ? <RefreshCw className="h-3 w-3 animate-spin" /> : <DatabaseZap className="h-3 w-3" />}
+                  โหลดแชทเก่า
+                </button>
+              </div>
+            </div>
+
             {qaLoading ? (
               <div className="flex items-center justify-center h-40">
                 <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
@@ -220,11 +274,11 @@ export default function LearnedDataPage({ businessId }: Props) {
               <EmptyState
                 label="ยังไม่มีบทสนทนาที่บันทึกไว้"
                 icon={<ClipboardList className="h-8 w-8" />}
-                hint="บอทจะบันทึก Q&A ทุกครั้งที่ตอบลูกค้า รอสักครู่แล้วกดรีเฟรช"
+                hint="กด 'โหลดแชทเก่า' ด้านบนเพื่อดึงข้อมูลบทสนทนาที่มีอยู่ทั้งหมด"
               />
             ) : (
               <>
-                <p className="text-xs text-gray-500 mb-3">
+                <p className="text-xs text-gray-500 mb-1">
                   กด <ThumbsUp className="inline h-3 w-3 text-green-600" /> ถ้าบอทตอบถูก &nbsp;|&nbsp;
                   กด <ThumbsDown className="inline h-3 w-3 text-red-600" /> ถ้าบอทตอบผิด → ระบบจะเรียนรู้อัตโนมัติ
                 </p>
