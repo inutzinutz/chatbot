@@ -9,9 +9,11 @@ interface EmbedConfig {
 
 /** Map of valid embed keys to their business config */
 const EMBED_KEY_MAP: Record<string, EmbedConfig> = {
-  script_4x9xsyeyuk8:  { businessId: "dji13store",     name: "DJI 13 STORE",               color: "#ef4444" },
-  script_demo:          { businessId: "dji13store",     name: "DJI 13 STORE Demo",          color: "#ef4444" },
-  script_test:          { businessId: "dji13store",     name: "DJI 13 STORE Test",          color: "#ef4444" },
+  // dji13store — main sales bot for www.dji13store.com
+  dji13store:           { businessId: "dji13store",     name: "DJI 13 STORE",               color: "#3b82f6" },
+  script_4x9xsyeyuk8:  { businessId: "dji13store",     name: "DJI 13 STORE",               color: "#3b82f6" },
+  script_demo:          { businessId: "dji13store",     name: "DJI 13 STORE Demo",          color: "#3b82f6" },
+  script_test:          { businessId: "dji13store",     name: "DJI 13 STORE Test",          color: "#3b82f6" },
   evlifethailand:       { businessId: "evlifethailand", name: "EV Life Thailand",            color: "#f97316" },
   evlife_demo:          { businessId: "evlifethailand", name: "EV Life Thailand Demo",       color: "#f97316" },
   script_dji13support:  { businessId: "dji13support",   name: "Support @ DJI 13 Store",      color: "#ef4444" },

@@ -26,6 +26,9 @@ import {
   ExternalLink,
   Zap,
   Menu,
+  Globe,
+  Copy,
+  Check,
 } from "lucide-react";
 import { getBusinessConfig } from "@/lib/businessUnits";
 import { ToastContainer, PageWrapper } from "@/components/ui";
@@ -39,69 +42,161 @@ interface AuthUser {
   allowedBusinessIds: string[];
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+function CodeBlock({ code }: { code: string }) {
+  return (
+    <div className="relative rounded-lg bg-gray-900 p-4 overflow-x-auto">
+      <div className="absolute top-2 right-2">
+        <CopyButton text={code} />
+      </div>
+      <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap pr-8">{code}</pre>
+    </div>
+  );
+}
+
 function SettingsPage({ businessId }: { businessId: string }) {
   const config = getBusinessConfig(businessId);
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://your-chatbot-domain.vercel.app";
+
+  const bubbleSnippet = `<!-- DJI 13 STORE Chat Widget (Floating Bubble) -->
+<script
+  src="${origin}/widget.js"
+  data-key="${businessId}"
+  data-delay="4000"
+  data-position="bottom-right">
+</script>`;
+
+  const inlineSnippet = `<!-- DJI 13 STORE Chat Widget (Inline Embed) -->
+<div id="droidmind-chat" style="height:600px; width:100%; max-width:480px;"></div>
+<script
+  src="${origin}/widget.js"
+  data-key="${businessId}"
+  data-mode="inline"
+  data-target="droidmind-chat">
+</script>`;
+
+  const wpBubbleSnippet = `// Paste in: Appearance → Theme Editor → functions.php
+// OR use a plugin like "Insert Headers and Footers"
+function droidmind_chat_widget() {
+    ?>
+    <script
+      src="${origin}/widget.js"
+      data-key="${businessId}"
+      data-delay="4000"
+      data-position="bottom-right">
+    </script>
+    <?php
+}
+add_action('wp_footer', 'droidmind_chat_widget');`;
+
   return (
     <div className="flex-1 overflow-y-auto bg-gray-50/50 p-6">
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Settings</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Configuration & embed instructions
-          </p>
+          <p className="text-sm text-gray-500 mt-0.5">Embed widget & configuration</p>
         </div>
 
-        {/* Embed Widget */}
+        {/* ── Website Connection ── */}
+        <div className="bg-white rounded-xl border border-blue-200 p-5 shadow-sm space-y-4">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-blue-600" />
+            <h3 className="text-sm font-semibold text-gray-900">เชื่อมต่อเว็บไซต์</h3>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">www.dji13store.com</span>
+          </div>
+
+          {/* Bubble mode */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-700">1. Floating Bubble</span>
+              <span className="text-[10px] text-gray-400">ปุ่มลอยมุมล่างขวา — แนะนำสำหรับทุกหน้า</span>
+            </div>
+            <CodeBlock code={bubbleSnippet} />
+          </div>
+
+          {/* Inline mode */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-700">2. Inline Embed</span>
+              <span className="text-[10px] text-gray-400">ฝัง chat window ตรงในหน้า — เหมาะกับหน้า Contact / Support</span>
+            </div>
+            <CodeBlock code={inlineSnippet} />
+          </div>
+        </div>
+
+        {/* ── WordPress Instructions ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
           <div className="flex items-center gap-2">
-            <Code className="h-4 w-4 text-pink-600" />
-            <h3 className="text-sm font-semibold text-gray-900">
-              Embed Widget
-            </h3>
+            <Code className="h-4 w-4 text-blue-600" />
+            <h3 className="text-sm font-semibold text-gray-900">WordPress / WooCommerce</h3>
           </div>
-          <p className="text-xs text-gray-500">
-            Add this script to any website to embed the {config.name} chatbot
-            widget.
-          </p>
-          <div className="rounded-lg bg-gray-900 p-4 text-xs text-green-400 font-mono overflow-x-auto">
-            <pre>{`<script\n  src="${typeof window !== "undefined" ? window.location.origin : ""}/widget.js"\n  data-key="${businessId}"\n  data-droid-id="${businessId}"\n></script>`}</pre>
+
+          <div className="space-y-3 text-xs text-gray-600">
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 space-y-1">
+              <p className="font-semibold text-blue-800">วิธีที่ง่ายที่สุด — Plugin</p>
+              <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                <li>ติดตั้ง plugin <strong>"Insert Headers and Footers"</strong> (by WPCode)</li>
+                <li>ไปที่ Settings → Insert Headers and Footers → Scripts in Footer</li>
+                <li>วาง snippet &quot;Floating Bubble&quot; ด้านบน → Save</li>
+              </ol>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-semibold text-gray-700">วิธีที่ 2 — functions.php</p>
+              <CodeBlock code={wpBubbleSnippet} />
+            </div>
+
+            <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+              <p className="font-semibold text-amber-800 mb-1">หมายเหตุสำคัญ</p>
+              <ul className="list-disc list-inside space-y-1 text-amber-700">
+                <li>ใส่ script ใน <strong>footer</strong> เท่านั้น (ไม่ใช่ header)</li>
+                <li>ตรวจสอบว่า domain <code className="bg-amber-100 px-1 rounded">www.dji13store.com</code> ถูกต้อง</li>
+                <li>ถ้าใช้ caching plugin (WP Super Cache, W3 Total Cache) ให้ clear cache หลัง install</li>
+              </ul>
+            </div>
           </div>
         </div>
 
-        {/* API Mode */}
+        {/* ── AI Mode ── */}
         <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-sm space-y-3">
           <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
             <Zap className="h-4 w-4" />
-            AI Mode
+            AI Mode — {config.name}
           </h3>
           <p className="text-xs text-amber-700">
-            Currently running in <strong>Smart Fallback</strong> mode — no API
-            key required.
+            ทำงานในโหมด <strong>Smart Pipeline</strong> (15 layers) + AI fallback
           </p>
-          <p className="text-xs text-amber-600">
-            Priority 1: Add{" "}
-            <code className="bg-violet-100 text-violet-700 px-1 py-0.5 rounded">
-              ANTHROPIC_API_KEY
-            </code>{" "}
-            to{" "}
-            <code className="bg-amber-100 px-1 py-0.5 rounded">.env.local</code>{" "}
-            for Claude Sonnet streaming.
-          </p>
-          <p className="text-xs text-amber-600">
-            Priority 2: Add{" "}
-            <code className="bg-emerald-100 text-emerald-700 px-1 py-0.5 rounded">
-              OPENAI_API_KEY
-            </code>{" "}
-            to{" "}
-            <code className="bg-amber-100 px-1 py-0.5 rounded">.env.local</code>{" "}
-            for GPT-4o-mini streaming.
-          </p>
-          <p className="text-[10px] text-amber-500 mt-1">
-            If no API keys are set, the system uses Smart Fallback (15-layer pipeline) automatically.
-          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-violet-50 rounded-lg p-2.5 border border-violet-100">
+              <p className="font-semibold text-violet-800">Priority 1: Claude</p>
+              <code className="text-violet-600 text-[10px]">ANTHROPIC_API_KEY</code>
+            </div>
+            <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-100">
+              <p className="font-semibold text-emerald-800">Priority 2: GPT-4o</p>
+              <code className="text-emerald-600 text-[10px]">OPENAI_API_KEY</code>
+            </div>
+          </div>
         </div>
 
-        {/* API Endpoints */}
+        {/* ── API Endpoints ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <ExternalLink className="h-4 w-4 text-indigo-600" />
@@ -109,28 +204,13 @@ function SettingsPage({ businessId }: { businessId: string }) {
           </h3>
           <div className="space-y-2">
             {[
-              { method: "POST", path: "/api/chat", desc: "Send chat message" },
-              {
-                method: "GET",
-                path: "/api/analytics",
-                desc: "Get analytics data",
-              },
-              {
-                method: "GET",
-                path: "/api/products",
-                desc: "List/search products",
-              },
+              { method: "POST", path: "/api/chat",      desc: "Send chat message" },
+              { method: "GET",  path: "/api/analytics", desc: "Get analytics data" },
+              { method: "GET",  path: "/api/products",  desc: "List/search products" },
             ].map((ep) => (
-              <div
-                key={ep.path}
-                className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
-              >
-                <span className="text-[10px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded">
-                  {ep.method}
-                </span>
-                <code className="text-xs text-gray-700 font-mono flex-1">
-                  {ep.path}
-                </code>
+              <div key={ep.path} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                <span className="text-[10px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded">{ep.method}</span>
+                <code className="text-xs text-gray-700 font-mono flex-1">{ep.path}</code>
                 <span className="text-[10px] text-gray-400">{ep.desc}</span>
               </div>
             ))}

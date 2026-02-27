@@ -582,3 +582,16 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// ── OPTIONS: CORS preflight for cross-origin widget requests ──────────
+export function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin":  "https://www.dji13store.com, https://dji13store.com",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, x-pdpa-consent, x-conversation-id",
+      "Access-Control-Max-Age":       "86400",
+    },
+  });
+}
