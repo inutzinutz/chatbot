@@ -339,6 +339,16 @@ export async function POST(req: NextRequest) {
         pipelineLayerName: pipelineResult.trace.finalLayerName,
       });
 
+      // ── Log Q&A for Admin Review (fire-and-forget) ──
+      learnedStore.logQA({
+        businessId,
+        userId: senderId,
+        userQuestion: userText,
+        botAnswer: replyText,
+        layer: `L${pipelineResult.trace.finalLayer} ${pipelineResult.trace.finalLayerName ?? ""}`.trim(),
+        timestamp: Date.now(),
+      }).catch(() => {});
+
       // Send reply
       await sendTypingIndicator(senderId, accessToken, false);
       await sendFbMessage(senderId, replyText, accessToken);

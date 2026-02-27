@@ -8,6 +8,7 @@ import { products as dji13products } from "@/lib/products";
 import { products as evlifeProducts } from "@/lib/evlife/products";
 import { products as dji13supportProducts } from "@/lib/dji13support/products";
 import { products as dji13serviceProducts } from "@/lib/dji13service/products";
+import { learnedStore } from "@/lib/learnedStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Allow longer for AI analysis
@@ -132,6 +133,15 @@ export async function GET(req: NextRequest) {
       : Date.now() - 30 * 24 * 60 * 60 * 1000; // default: last 30 days
     const stats = await chatStore.getAdminStats(businessId, since);
     return NextResponse.json({ stats });
+  }
+
+  // View Q&A review log (for Auto-Learn review queue)
+  if (view === "qalog") {
+    const limit = parseInt(req.nextUrl.searchParams.get("limit") || "100");
+    const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
+    const entries = await learnedStore.getQALog(businessId, limit, offset);
+    const pendingCount = await learnedStore.getPendingReviewCount(businessId);
+    return NextResponse.json({ entries, pendingCount });
   }
 
   if (userId) {
@@ -664,6 +674,49 @@ export async function POST(req: NextRequest) {
       if (!correctionId) return NextResponse.json({ error: "Missing correctionId" }, { status: 400 });
       await chatStore.markCorrectionReviewed(businessId, correctionId);
       return NextResponse.json({ success: true });
+    }
+
+    // ── Auto-Learn: Admin approves a Q&A (good answer) ──
+    case "approveQA": {
+      const qaId = body.qaId as string;
+      if (!qaId) return NextResponse.json({ error: "Missing qaId" }, { status: 400 });
+      const updated = await learnedStore.reviewQA(businessId, qaId, "approved");
+      return NextResponse.json({ success: true, entry: updated });
+    }
+
+    // ── Auto-Learn: Admin rejects a Q&A (bad answer) → triggers retrain ──
+    case "rejectQA": {
+      const qaId = body.qaId as string;
+      if (!qaId) return NextResponse.json({ error: "Missing qaId" }, { status: 400 });
+      const updated = await learnedStore.reviewQA(businessId, qaId, "rejected");
+      if (!updated) return NextResponse.json({ error: "QA entry not found" }, { status: 404 });
+
+      // Track as miss immediately
+      await learnedStore.trackMiss(businessId, updated.userQuestion);
+
+      // Fire-and-forget retrain from the rejected Q&A
+      // botAnswer serves as the "wrong answer" so GPT-4o knows what to avoid
+      const learnUrl = new URL("/api/learn", req.url).toString();
+      const internalSecret = process.env.INTERNAL_SECRET ?? "chatbot-internal";
+      fetch(learnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": internalSecret,
+        },
+        body: JSON.stringify({
+          businessId,
+          userQuestion: updated.userQuestion,
+          botMessage: updated.botAnswer,
+          adminCorrection: "",   // empty = GPT-4o will generate correct answer from KB
+          qaId: updated.id,
+          retrain: true,
+        }),
+      }).catch((err) => {
+        console.error("[admin/rejectQA] retrain failed:", err);
+      });
+
+      return NextResponse.json({ success: true, entry: updated });
     }
 
     // ── Send Product Carousel to customer ──

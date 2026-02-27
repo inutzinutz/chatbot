@@ -1,15 +1,14 @@
 /* ------------------------------------------------------------------ */
 /*  POST /api/learn                                                     */
 /*                                                                      */
-/*  Auto-learning endpoint: called fire-and-forget after admin logs a   */
-/*  correction. Uses GPT-4o to analyse what the bot got wrong and       */
-/*  decides whether to learn:                                           */
-/*    A) A new intent trigger (bot didn't recognise the topic at all)   */
-/*    B) A new knowledge doc (factual / policy question)                */
-/*    C) A new sale script (product/sales response to reuse)            */
-/*    D) Nothing (e.g. escalation, one-off personal question)          */
+/*  Auto-learning endpoint — two modes:                                 */
+/*  1. retrain=true  (admin marked answer as bad):                      */
+/*     GPT-4o gets the bad answer + knowledge base → generates a        */
+/*     correct answer, then saves learned rule.                         */
+/*  2. retrain=false (legacy: admin supplied correction manually):      */
+/*     GPT-4o analyses before/after correction.                         */
 /*                                                                      */
-/*  Auth: internal-secret header (same as /api/chat/summarize)         */
+/*  Auth: internal-secret header                                        */
 /* ------------------------------------------------------------------ */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,8 +20,9 @@ export const maxDuration = 30;
 
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET ?? "chatbot-internal";
 
-// ── System prompt for GPT-4o ──────────────────────────────────────────
+// ── System prompts for GPT-4o ─────────────────────────────────────────
 
+/** Mode 1: admin manually supplied the correct answer */
 function buildAnalysisPrompt(
   businessName: string,
   userQuestion: string,
@@ -87,6 +87,69 @@ Rules:
 - Do NOT include any markdown in the JSON values`;
 }
 
+/** Mode 2: admin marked answer as bad — GPT-4o must generate correct answer from KB */
+function buildRetrainPrompt(
+  businessName: string,
+  userQuestion: string,
+  badBotResponse: string,
+  existingIntentNames: string,
+  knowledgeSummary: string,
+): string {
+  return `You are an AI training assistant for "${businessName}" customer service chatbot.
+
+An admin reviewed a bot response and marked it as INCORRECT. You must:
+1. Understand what the customer was asking
+2. Use the knowledge base below to generate a correct answer
+3. Save a learned rule so the bot answers correctly next time
+
+CUSTOMER QUESTION:
+"${userQuestion}"
+
+BAD BOT RESPONSE (marked as incorrect by admin):
+"${badBotResponse}"
+
+BUSINESS KNOWLEDGE BASE (use this to write the correct answer):
+${knowledgeSummary}
+
+EXISTING INTENT NAMES:
+${existingIntentNames}
+
+Respond with a JSON object (no markdown, just raw JSON):
+
+{
+  "action": "intent" | "knowledge" | "script" | "none",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation in Thai",
+
+  "intent": {
+    "intentId": "existing_intent_id or 'new'",
+    "intentName": "ชื่อ intent ภาษาไทย",
+    "triggers": ["คำสำคัญ1", "คำสำคัญ2"],
+    "responseTemplate": "คำตอบที่ถูกต้องสมบูรณ์ (ภาษาไทย)"
+  },
+
+  "knowledge": {
+    "title": "หัวข้อเอกสาร",
+    "triggers": ["คำสำคัญ1", "คำสำคัญ2"],
+    "content": "เนื้อหาความรู้ที่สมบูรณ์ (ภาษาไทย)"
+  },
+
+  "script": {
+    "name": "ชื่อ script",
+    "triggers": ["คำสำคัญ1", "คำสำคัญ2"],
+    "adminReply": "ข้อความที่ควรตอบ (ภาษาไทย)"
+  }
+}
+
+Rules:
+- Generate a COMPLETE correct Thai response based on the knowledge base
+- Use "intent" for topic/routing errors, "knowledge" for factual errors, "script" for sales pitch errors
+- Use "none" only if the question is personal/one-off and impossible to generalise
+- Triggers must be SHORT Thai keywords (1-4 words)
+- Confidence > 0.7 required (you have KB to reference, so be confident)
+- Do NOT include any markdown in the JSON values`;
+}
+
 // ── POST handler ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -107,6 +170,8 @@ export async function POST(req: NextRequest) {
     botMessage: string;
     adminCorrection: string;
     correctionId?: string;
+    qaId?: string;
+    retrain?: boolean;
   };
 
   try {
@@ -115,9 +180,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { businessId, userQuestion, botMessage, adminCorrection, correctionId } = body;
-  if (!businessId || !userQuestion || !botMessage || !adminCorrection) {
+  const { businessId, userQuestion, botMessage, adminCorrection, correctionId, qaId, retrain } = body;
+  if (!businessId || !userQuestion || !botMessage) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+  // Non-retrain mode requires adminCorrection
+  if (!retrain && !adminCorrection) {
+    return NextResponse.json({ error: "Missing adminCorrection" }, { status: 400 });
   }
 
   try {
@@ -128,6 +197,27 @@ export async function POST(req: NextRequest) {
 
     // Track this as a miss for dashboard stats
     await learnedStore.trackMiss(businessId, userQuestion);
+
+    // Build system prompt depending on mode
+    let systemPrompt: string;
+    if (retrain) {
+      // Mode 2: auto-retrain — build knowledge summary from biz config
+      const kbLines: string[] = [];
+      if (biz.intents?.length) {
+        kbLines.push("## Intents");
+        for (const intent of biz.intents.slice(0, 20)) {
+          kbLines.push(`- ${intent.name}: triggers=[${(intent.triggers ?? []).slice(0, 5).join(", ")}]`);
+        }
+      }
+      if (biz.systemPromptIdentity) {
+        kbLines.push("\n## System Context");
+        kbLines.push(biz.systemPromptIdentity.slice(0, 800));
+      }
+      const knowledgeSummary = kbLines.join("\n") || "No knowledge base available.";
+      systemPrompt = buildRetrainPrompt(biz.name, userQuestion, botMessage, existingIntentNames, knowledgeSummary);
+    } else {
+      systemPrompt = buildAnalysisPrompt(biz.name, userQuestion, botMessage, adminCorrection, existingIntentNames);
+    }
 
     // Call GPT-4o to analyze
     const gptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -144,17 +234,13 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: "system",
-            content: buildAnalysisPrompt(
-              biz.name,
-              userQuestion,
-              botMessage,
-              adminCorrection,
-              existingIntentNames,
-            ),
+            content: systemPrompt,
           },
           {
             role: "user",
-            content: "Analyze the correction and return the JSON decision.",
+            content: retrain
+              ? "Analyze the bad bot response and generate a learned rule. Return the JSON decision."
+              : "Analyze the correction and return the JSON decision.",
           },
         ],
       }),
@@ -212,6 +298,8 @@ export async function POST(req: NextRequest) {
 
     let savedId: string | null = null;
 
+    const sourceAnswer = adminCorrection || (decision.intent?.responseTemplate ?? decision.knowledge?.content ?? decision.script?.adminReply ?? "");
+
     if (decision.action === "intent" && decision.intent) {
       const learned = await learnedStore.saveLearnedIntent({
         businessId,
@@ -220,7 +308,7 @@ export async function POST(req: NextRequest) {
         triggers: decision.intent.triggers,
         responseTemplate: decision.intent.responseTemplate,
         sourceQuestion: userQuestion,
-        sourceAdminAnswer: adminCorrection,
+        sourceAdminAnswer: sourceAnswer,
         confidence: decision.confidence,
         enabled: true,
       });
@@ -232,7 +320,7 @@ export async function POST(req: NextRequest) {
         content: decision.knowledge.content,
         triggers: decision.knowledge.triggers,
         sourceQuestion: userQuestion,
-        sourceAdminAnswer: adminCorrection,
+        sourceAdminAnswer: sourceAnswer,
         confidence: decision.confidence,
         enabled: true,
       });
@@ -251,7 +339,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(
-      `[learn] ${businessId} → ${decision.action} (conf=${decision.confidence}) id=${savedId} "${userQuestion.slice(0, 60)}"`
+      `[learn] ${businessId} → ${decision.action} (conf=${decision.confidence}) id=${savedId} retrain=${!!retrain} qaId=${qaId ?? "-"} "${userQuestion.slice(0, 60)}"`
     );
 
     return NextResponse.json({
@@ -261,6 +349,7 @@ export async function POST(req: NextRequest) {
       reasoning: decision.reasoning,
       savedId,
       correctionId,
+      qaId,
     });
 
   } catch (err) {

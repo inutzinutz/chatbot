@@ -737,6 +737,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
         });
         diag.replyApiOk = true;
 
+        // ── Log Q&A for Admin Review (fire-and-forget) ──
+        learnedStore.logQA({
+          businessId,
+          userId: lineUserId,
+          userQuestion: userText,
+          botAnswer: replyText,
+          layer: `L${pipelineTrace.finalLayer} ${pipelineTrace.finalLayerName ?? ""}`.trim(),
+          timestamp: Date.now(),
+        }).catch(() => {});
+
         // ── CRM auto-extract (fire-and-forget) ──
         autoExtractCRM(businessId, lineUserId).catch(() => {});
       }

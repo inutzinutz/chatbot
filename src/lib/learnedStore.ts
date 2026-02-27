@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------ */
 /*  Learned Store — auto-learned intents, knowledge docs, sale scripts  */
-/*  Populated by /api/learn when admin corrects a bot response.         */
+/*  Populated by /api/learn when admin reviews Q&A log.                 */
 /*                                                                      */
 /*  Redis key schema (all scoped per businessId):                       */
 /*    learnedintents:{biz}      → Sorted set (score=createdAt, member=id) */
@@ -10,6 +10,8 @@
 /*    learnedscripts:{biz}      → Sorted set (score=createdAt, member=id) */
 /*    learnedscript:{biz}:{id}  → JSON<LearnedScript>                   */
 /*    learnmiss:{biz}           → Sorted set (score=count, member=normQuestion) */
+/*    qalog:{biz}               → Sorted set (score=timestamp, member=id) */
+/*    qa:{biz}:{id}             → JSON<QALogEntry>                      */
 /* ------------------------------------------------------------------ */
 
 import Redis from "ioredis";
@@ -77,6 +79,22 @@ export interface MissEntry {
   count: number;
   examples: string[];   // up to 5 actual customer messages
   lastSeenAt: number;
+}
+
+/** Q&A log entry — every bot reply logged for admin review */
+export interface QALogEntry {
+  id: string;
+  businessId: string;
+  userId: string;
+  userQuestion: string;
+  botAnswer: string;
+  /** Layer that produced the answer (e.g. "L7 Intent", "L15 GPT-4o") */
+  layer: string;
+  timestamp: number;
+  /** Admin review status: pending | approved | rejected */
+  reviewStatus: "pending" | "approved" | "rejected";
+  /** Set when admin rejects — triggers retrain */
+  rejectedAt?: number;
 }
 
 // ── Redis singleton ────────────────────────────────────────────────────
@@ -333,6 +351,74 @@ class LearnedStore {
     return results;
   }
 
+  // ── Q&A Log ──────────────────────────────────────────────────────────
+  // Log every bot reply so admin can review and mark bad answers.
+
+  async logQA(entry: Omit<QALogEntry, "id" | "reviewStatus">): Promise<QALogEntry> {
+    const redis = getRedis();
+    const full: QALogEntry = {
+      ...entry,
+      id: randomUUID(),
+      reviewStatus: "pending",
+    };
+    const key = `qa:${entry.businessId}:${full.id}`;
+    await setJSON(key, full);
+    if (redis) {
+      await redis.expire(key, 30 * 24 * 60 * 60); // 30 days
+      await redis.zadd(`qalog:${entry.businessId}`, full.timestamp, full.id);
+      // Keep only last 500 entries to avoid unbounded growth
+      await redis.zremrangebyrank(`qalog:${entry.businessId}`, 0, -501);
+    }
+    return full;
+  }
+
+  async getQALog(businessId: string, limit = 100, offset = 0): Promise<QALogEntry[]> {
+    const redis = getRedis();
+    if (!redis) return [];
+    // Newest first
+    const ids = await redis.zrange(`qalog:${businessId}`, offset, offset + limit - 1, "REV");
+    if (!ids.length) return [];
+    const pl = redis.pipeline();
+    for (const id of ids) pl.get(`qa:${businessId}:${id}`);
+    const results = await pl.exec();
+    if (!results) return [];
+    return results
+      .map(([, raw]) => {
+        if (!raw || typeof raw !== "string") return null;
+        try { return JSON.parse(raw) as QALogEntry; } catch { return null; }
+      })
+      .filter((x): x is QALogEntry => x !== null);
+  }
+
+  async reviewQA(businessId: string, id: string, status: "approved" | "rejected"): Promise<QALogEntry | null> {
+    const key = `qa:${businessId}:${id}`;
+    const entry = await getJSON<QALogEntry>(key);
+    if (!entry) return null;
+    entry.reviewStatus = status;
+    if (status === "rejected") entry.rejectedAt = Date.now();
+    await setJSON(key, entry);
+    return entry;
+  }
+
+  async getPendingReviewCount(businessId: string): Promise<number> {
+    const redis = getRedis();
+    if (!redis) return 0;
+    // Get latest 200 and count pending ones
+    const ids = await redis.zrange(`qalog:${businessId}`, 0, 199, "REV");
+    if (!ids.length) return 0;
+    const pl = redis.pipeline();
+    for (const id of ids) pl.get(`qa:${businessId}:${id}`);
+    const results = await pl.exec();
+    if (!results) return 0;
+    return results.filter(([, raw]) => {
+      if (!raw || typeof raw !== "string") return false;
+      try {
+        const e = JSON.parse(raw) as QALogEntry;
+        return e.reviewStatus === "pending";
+      } catch { return false; }
+    }).length;
+  }
+
   // ── Get all learned data (for pipeline injection) ────────────────────
 
   async getAllLearnedData(businessId: string): Promise<{
@@ -356,16 +442,18 @@ class LearnedStore {
     totalScripts: number;
     totalMissTypes: number;
     topMisses: MissEntry[];
+    pendingReview: number;
   }> {
     const redis = getRedis();
-    if (!redis) return { totalIntents: 0, totalKnowledge: 0, totalScripts: 0, totalMissTypes: 0, topMisses: [] };
+    if (!redis) return { totalIntents: 0, totalKnowledge: 0, totalScripts: 0, totalMissTypes: 0, topMisses: [], pendingReview: 0 };
 
-    const [intentsCount, knowledgeCount, scriptsCount, missCount, topMisses] = await Promise.all([
+    const [intentsCount, knowledgeCount, scriptsCount, missCount, topMisses, pendingReview] = await Promise.all([
       redis.zcard(`learnedintents:${businessId}`),
       redis.zcard(`learnedknowledge:${businessId}`),
       redis.zcard(`learnedscripts:${businessId}`),
       redis.zcard(`learnmiss:${businessId}`),
       this.getTopMisses(businessId, 10),
+      this.getPendingReviewCount(businessId),
     ]);
 
     return {
@@ -374,6 +462,7 @@ class LearnedStore {
       totalScripts: scriptsCount,
       totalMissTypes: missCount,
       topMisses,
+      pendingReview,
     };
   }
 }
